@@ -92,7 +92,8 @@ struct thread
     struct list_elem allelem;           /* List element for all threads list. */
 		
     int is_loaded; //프로세스가 성공적으로 로드되었는지
-		int exit_status; 
+    int exit_status; 
+    int is_exited;
 		struct semaphore wait_sema; //프로세스 대기를 위한 세마포어
 		struct semaphore load_sema;	//프로세스 로드를 위한 세마포어
 		struct list child_list; //자식프로세스 리스트에 대한 필드

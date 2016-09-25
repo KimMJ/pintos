@@ -174,7 +174,6 @@ thread_create (const char *name, int priority,
   enum intr_level old_level;
 
   ASSERT (function != NULL);
-  printf("thread create1\n");
   /* Allocate thread. */
   t = palloc_get_page (PAL_ZERO);
   if (t == NULL){
@@ -188,7 +187,7 @@ thread_create (const char *name, int priority,
   tid = t->tid = allocate_tid ();
 	
   t->parents_descriptor = thread_current(); //부모 프로세스 디스크립터 포인터 저장
-	list_push_back(&thread_current()->child_list.head,&t->child_elem); //자식프로세스 추가
+	list_push_back(&thread_current()->child_list,&t->child_elem); //자식프로세스 추가
 	
   sema_init(&t->load_sema,0);
 	sema_init(&t->wait_sema,0);
@@ -218,7 +217,6 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
   
-  printf("thread create2\n");
   return tid;
 }
 
@@ -298,6 +296,7 @@ thread_tid (void)
 void
 thread_exit (void) 
 {
+  struct thread *t = thread_current();
   ASSERT (!intr_context ());
 
 #ifdef USERPROG
@@ -308,11 +307,14 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   //유저 프로스세가 종료되면 부모 프로세스 대기상태 이탈 후 진행.
-	sema_up(&thread_current()->wait_sema);//자신은 끝났음을 부모에게 알림.
-  
   intr_disable ();
   list_remove (&thread_current()->allelem);
-  thread_current ()->status = THREAD_DYING;//쓰레드는 죽음
+  if (thread_current() != initial_thread){
+    sema_up(&thread_current()->wait_sema);//자신은 끝났음을 부모에게 알림.
+    thread_current()->is_exited = 1;
+  }
+  thread_current()->status = THREAD_DYING;//쓰레드는 죽음
+   
   
   schedule ();
   NOT_REACHED ();

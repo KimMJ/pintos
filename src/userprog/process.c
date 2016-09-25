@@ -32,6 +32,8 @@ tid_t process_execute (const char *file_name)
   tid_t tid;
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
+
+  
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
@@ -47,6 +49,7 @@ tid_t process_execute (const char *file_name)
 
 	if (tid == TID_ERROR)
     palloc_free_page (fn_copy);
+
   return tid;
 }
 
@@ -63,7 +66,6 @@ start_process (void *file_name_)
 
 
   /*파싱해서 로드 함수의 첫번째 인자로는 함수의 이름을 전달*/
-
   //fn_copy의 동적할당
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
@@ -96,7 +98,7 @@ start_process (void *file_name_)
 	argument_stack(&file_name_, count, &if_.esp);//입력을 그대로 넘기고, 총 argument의 갯수, 스택포인터를 넘긴다.)
 	hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);//메모리 확인을 위한 함수
 
-	palloc_free_page (file_name);
+	palloc_free_page (fn_copy);
 
 
   /* Start the user process by simulating a return from an
@@ -105,6 +107,7 @@ start_process (void *file_name_)
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
+
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
@@ -238,21 +241,22 @@ void argument_stack(char **parse, int count, void **esp){
 
 //pseudo code
 struct thread *get_child_process(int pid){
-	struct list_elem *elem;
-	
+    struct list_elem *elem;
+    struct thread *t;
+    int i=0;
   for (elem = list_begin(&thread_current()->child_list) ; 
-				list_entry(elem,struct thread, child_elem)->tid != pid||
 				elem != list_end(&thread_current()->child_list) ; 
-				elem = elem->next){
-	}
-	if (elem == list_end(&thread_current()->child_list)) return NULL;
-	else return elem;
+				elem = list_next(elem)){
+    if ((t=list_entry(elem,struct thread, child_elem))->tid == pid){
+      return t;
+    }
+  }	
+  return NULL;
 }
 
 void remove_child_process(struct thread *cp){
 	//부모의 리스트로 가서 제거할 위치를 찾고 제거 없으면??
-	((cp->elem).prev)->next = (cp->elem).next;
-	((cp->elem).next)->prev = (cp->elem).prev;
+    list_remove(&cp->elem);
 	//메모리 해제
 	palloc_free_page(cp);
 }
@@ -264,7 +268,7 @@ process_wait (tid_t child_tid UNUSED)
 {
 	struct thread* child_thread= get_child_process(child_tid);
 	int status;
-	/*
+  /*
 		자식 프로세스가 종료될 때 까지 대기
 		자식 프로세스가 올바르게 종료되었는지 확인
 	*/
@@ -275,12 +279,19 @@ process_wait (tid_t child_tid UNUSED)
 		자식 프로세스 디스크립터 삭제
 		자식 프로세스의 exit status 리턴
 	*/
-	sema_down(&child_thread->wait_sema);
+  if (child_thread == NULL){
+    return -1;
+  }
+
+  sema_down(&child_thread->wait_sema);
   status = child_thread->exit_status;
+  printf("thread name is %s, status is %d\n",thread_name(), status); 
   if (status){
     remove_child_process(child_thread);	  
+    return status;
   }
-  return status;
+
+  return -1;
 }
 
 /* Free the current process's resources. */

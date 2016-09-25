@@ -13,7 +13,6 @@ static void syscall_handler (struct intr_frame *f UNUSED);
 void
 syscall_init (void) 
 {
-
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -24,40 +23,35 @@ syscall_handler (struct intr_frame *f UNUSED)
 	int number = *(int *)(f->esp);
 	int arg[4];						
 	check_address(esp);
-	printf("number is %d\n",number);
 	switch(number){
 	case SYS_HALT:
-		printf("1\n");
 		halt();
 		break;
 	case SYS_EXIT:
 		get_argument(f->esp,arg,1);
-		printf("2\n");
 		exit(arg[0]);
 		break;
   case SYS_CREATE :
 		get_argument(f->esp, arg, 2);
-		printf("3\n");
 		f->eax = create(arg[0],arg[1]);
 		break;
  	case SYS_REMOVE :
 		get_argument(f->esp, arg ,1);
-		printf("4\n");
 		f->eax = remove(arg[0]);
 		break;
 	case SYS_EXEC:
 		get_argument(f->esp,arg,1);
-		printf("5\n");
 		check_address((void*)arg[0]);
 		f->eax = exec((const char *) arg[0]);
 		break;	
 	}	
   printf ("system call!\n");
+
   thread_exit ();
 }
 
 void check_address(void *addr){
-	if ((int *)addr>=0xc0000000 || (int *)addr <=0x8048000)
+  if ((int *)addr>=0xc0000000 || (int *)addr <=0x8048000)
 		exit(-1);
 }
 
@@ -76,7 +70,7 @@ void halt(void){
 
 void exit(int status){
 	thread_current()->exit_status = status;
-	printf("%s :exit(%d)",thread_name(), status);
+  printf("%s :exit(%d)",thread_name(), status);
 	thread_exit();
 }
 
@@ -95,14 +89,11 @@ tid_t exec(const char *cmd_line){
 		프로그램 탑재 성공 시 자식 프로세스의 pid리턴
 	*/
 	pid = process_execute(cmd_line);
-  printf("exec\n");
   if (pid == TID_ERROR){
     return -1;
   }
-  printf("exec1\n");
 	t = get_child_process(pid);	
   sema_down(&t->load_sema);
-  printf("exec2\n");
   if (t->is_loaded)
 		return t->tid;
 	
