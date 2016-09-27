@@ -14,6 +14,7 @@ void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&filesys_lock);
 }
 
 static void
@@ -23,7 +24,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 	int number = *(int *)(f->esp);
 	int arg[4];						
 	check_address(esp);
-	switch(number){
+  switch(number){
 	case SYS_HALT:
 		halt();
 		break;
@@ -46,7 +47,6 @@ syscall_handler (struct intr_frame *f UNUSED)
 		break;	
 	}	
   printf ("system call!\n");
-
   thread_exit ();
 }
 
@@ -70,7 +70,7 @@ void halt(void){
 
 void exit(int status){
 	thread_current()->exit_status = status;
-  printf("%s :exit(%d)",thread_name(), status);
+  printf("%s :exit(%d)\n",thread_name(), status);
 	thread_exit();
 }
 
@@ -106,4 +106,94 @@ bool create (const char *file, unsigned initial_size){
 
 bool remove (const char *file){
 	return filesys_remove(file);
+}
+
+int open (const char *file){
+  struct file* f = filesys_open(file);  
+  struct thread * t = thread_current();
+  if (f == NULL){
+    return -1;
+  }
+  t->fdt[t->next_fd] = f;
+  t->next_fd ++;
+  return t->next_fd - 1;
+
+}
+
+int filesize(int fd){
+  struct file * f = process_get_file(fd);
+  if (f == NULL) return -1;
+
+  return file_length(f);
+}
+
+int read (int fd, void * buffer, unsigned size){
+  struct file * f;
+  off_t t = 0;
+  //lock
+  if (fd == 0){
+    input_getc();  
+  }
+  
+  f = process_get_file(fd);
+  if (f == 0){
+    return -1;
+  }
+  
+  t =  file_read(f,buffer,size);
+
+  f->pos += t;
+  //unlock
+  return t;
+}
+int write (int fd, void * buffer, unsigned size){
+  struct file * f;
+  off_t t = 0;
+  
+  //lock
+  if (fd == 1){
+    putbuf(buffer,size);
+  }
+
+  f = process_get_file(fd);
+  if (f == 0){
+    return -1;
+  }
+
+  t = file_write(fd, buffer, size);
+
+  f->pos += t;
+  //unlock
+  return t;
+}
+void seek(int fd, unsigned position){
+  struct file * f;
+  off_t t = 0;
+  ASSERT(fd > 1 && fd < 64);
+
+  f = process_get_file(fd);
+  if (f == 0){
+    return -1;
+  }
+
+  file_seek(f, position);
+}
+unsigned tell (int fd){
+  struct file * f;
+  ASSERT(fd > 1 && fd < 64);
+
+  f = process_get_file();
+  if (f == 0) return -1;
+
+  return file_tell(f);
+}
+void close (int fd){
+  struct file * f;
+  ASSERT(fd > 1 && fd < 64);
+
+  f = process_get_file();
+  if (f != 0){
+    file_close(f);
+    palloc_free_page(thread_current()->fdt[fd]);
+  }
 }

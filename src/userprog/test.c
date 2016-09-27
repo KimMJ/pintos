@@ -3,9 +3,12 @@
 #include <string.h>
 
 
-int A[1000][1000];
 int main(void){
-
-	printf("%d\n",A[0][0]);
+  void ** a;
+  void * b;
+  int **a;
+  *(int*)a=1;
+  *(char *******)(*a) = b;
+  *(void **)(*a) = b;
 	return 0;
 }

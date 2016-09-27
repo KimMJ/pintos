@@ -33,7 +33,6 @@ tid_t process_execute (const char *file_name)
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
 
-  
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
@@ -46,7 +45,6 @@ tid_t process_execute (const char *file_name)
   //tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);원래 있던 함수.
 	tid = thread_create(token, PRI_DEFAULT, start_process, file_name);//start_process(fn_copy)를 실행하는 쓰레드 생성. 쓰레드 이름은 token
   //Ready List 에 추가
-
 	if (tid == TID_ERROR)
     palloc_free_page (fn_copy);
 
@@ -96,7 +94,6 @@ start_process (void *file_name_)
   if (!success) 
     thread_exit ();
 	argument_stack(&file_name_, count, &if_.esp);//입력을 그대로 넘기고, 총 argument의 갯수, 스택포인터를 넘긴다.)
-	hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);//메모리 확인을 위한 함수
 
 	palloc_free_page (fn_copy);
 
@@ -107,6 +104,7 @@ start_process (void *file_name_)
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
+	hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);//메모리 확인을 위한 함수
 
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
@@ -202,12 +200,12 @@ void argument_stack(char **parse, int count, void **esp){
 	//argument들의 포인터를 스택에 넣는 부분
 	for (i = count-1 ; i >= 0 ; i --){//count만큼 실행하게 한다.
 		*esp -= 4;//void**는 4바이트
-		*(void**)(*esp) = argv_position + gap[i];//argv_position에서 gap만큼을 더한 것이 argument의 포인터
-	}
+		*(void**)(*esp) = (void*)argv_position + gap[i];//argv_position에서 gap만큼을 더한 것이 argument의 포인터
+  }
 	
 	//(char**)argv를 넣는 부분.
 	*esp -= 4;//char**는 4바이트
-	*(char**)(*esp) = (*esp + 4);//현재 스택포인터에서 4바이트 윗 부분이 argument[0]의 포인터이므로.
+	*(char***)(*esp) = (*esp + 4);//현재 스택포인터에서 4바이트 윗 부분이 argument[0]의 포인터이므로.
 
 	//argc를 넣는 부분
 	*esp -= 4;
@@ -239,11 +237,28 @@ void argument_stack(char **parse, int count, void **esp){
 
 /*modified*/
 
+int process_add_file (struct file *f){
+  struct thread * t = thread_current(); 
+  (*t->fdt)+next_fd = f;
+  t->next_fd += 1;
+  return t->next_fd - 1;
+}
+
+struct file *process_get_file (int fd){
+  ASSERT(fd >= 2 && fd <64);
+  return thread_current()->fdt[fd];
+}
+
+void process_close_file (int fd){
+  struct thread * t = thread_current();
+  file_close(t->fdt[fd]);
+  t->fdt[fd] = NULL;
+}
+
 //pseudo code
 struct thread *get_child_process(int pid){
-    struct list_elem *elem;
-    struct thread *t;
-    int i=0;
+  struct list_elem *elem;
+  struct thread *t;
   for (elem = list_begin(&thread_current()->child_list) ; 
 				elem != list_end(&thread_current()->child_list) ; 
 				elem = list_next(elem)){
@@ -256,7 +271,7 @@ struct thread *get_child_process(int pid){
 
 void remove_child_process(struct thread *cp){
 	//부모의 리스트로 가서 제거할 위치를 찾고 제거 없으면??
-    list_remove(&cp->elem);
+  list_remove(&cp->child_elem);
 	//메모리 해제
 	palloc_free_page(cp);
 }
@@ -285,13 +300,8 @@ process_wait (tid_t child_tid UNUSED)
 
   sema_down(&child_thread->wait_sema);
   status = child_thread->exit_status;
-  printf("thread name is %s, status is %d\n",thread_name(), status); 
-  if (status){
-    remove_child_process(child_thread);	  
-    return status;
-  }
-
-  return -1;
+  remove_child_process(child_thread);	  
+  return status;
 }
 
 /* Free the current process's resources. */
@@ -317,6 +327,10 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  while (cur->next_fd > 1){
+    process_close_file(next_fd-1);
+  }
+  palloc_free_page(t->fdt);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -513,8 +527,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
   success = true;
 
  done:
-  /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  /* We arrive here whether the //load is successful or not. */
+  //file_close (file);
   return success;
 }
 

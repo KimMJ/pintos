@@ -172,6 +172,8 @@ thread_create (const char *name, int priority,
   struct switch_threads_frame *sf;
   tid_t tid;
   enum intr_level old_level;
+  struct file * file_descriptor_table = palloc_get_page(sizeof(file)*64);
+  
 
   ASSERT (function != NULL);
   /* Allocate thread. */
@@ -191,6 +193,9 @@ thread_create (const char *name, int priority,
 	
   sema_init(&t->load_sema,0);
 	sema_init(&t->wait_sema,0);
+
+  *t->fdt = file_descriptor_table;
+  t->next_fd = 2;
 
   /* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack' 
@@ -314,8 +319,6 @@ thread_exit (void)
     thread_current()->is_exited = 1;
   }
   thread_current()->status = THREAD_DYING;//쓰레드는 죽음
-   
-  
   schedule ();
   NOT_REACHED ();
 }
@@ -584,6 +587,7 @@ schedule (void)
   if (cur != next)
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);
+  
 }
 
 /* Returns a tid to use for a new thread. */

@@ -100,6 +100,9 @@ struct thread
 		struct list_elem child_elem; //부모한테 넣을 놈
     struct thread * parents_descriptor; //부모프로세스 디스크립터 포인터
     
+    struct file **fdt; //file descriptor
+    int next_fd; //next_fd
+    
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
