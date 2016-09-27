@@ -172,8 +172,6 @@ thread_create (const char *name, int priority,
   struct switch_threads_frame *sf;
   tid_t tid;
   enum intr_level old_level;
-  struct file * file_descriptor_table = palloc_get_page(sizeof(file)*64);
-  
 
   ASSERT (function != NULL);
   /* Allocate thread. */
@@ -194,9 +192,8 @@ thread_create (const char *name, int priority,
   sema_init(&t->load_sema,0);
 	sema_init(&t->wait_sema,0);
 
-  *t->fdt = file_descriptor_table;
+  t->fdt = palloc_get_page(0);
   t->next_fd = 2;
-
   /* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack' 
      member cannot be observed. */
@@ -559,10 +556,11 @@ thread_schedule_tail (struct thread *prev)
      pull out the rug under itself.  (We don't free
      initial_thread because its memory was not obtained via
      palloc().) */
+  
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
     {
       ASSERT (prev != cur);
-      //palloc_free_page (prev);
+     // palloc_free_page (prev);
     }
 }
 
@@ -587,7 +585,6 @@ schedule (void)
   if (cur != next)
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);
-  
 }
 
 /* Returns a tid to use for a new thread. */

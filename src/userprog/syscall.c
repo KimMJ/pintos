@@ -6,7 +6,8 @@
 #include "devices/shutdown.h" // shutdown_power_off()
 #include "filesys/filesys.h"  // filesys_create(), filesys_remove()
 #include "userprog/process.h" // process_execute(), process_wait()
-
+#include "filesys/file.h"
+#include "filesys/inode.h"
 
 static void syscall_handler (struct intr_frame *f UNUSED);
 
@@ -42,12 +43,39 @@ syscall_handler (struct intr_frame *f UNUSED)
 		break;
 	case SYS_EXEC:
 		get_argument(f->esp,arg,1);
-		check_address((void*)arg[0]);
 		f->eax = exec((const char *) arg[0]);
-		break;	
-	}	
-  printf ("system call!\n");
-  thread_exit ();
+		break;
+  case SYS_OPEN :
+		get_argument(f->esp,arg,1);
+		f->eax = open((const char *) arg[0]);
+    break;
+  case SYS_FILESIZE :
+		get_argument(f->esp,arg,1);
+		f->eax = filesize((int) arg[0]);
+    break;
+  case SYS_READ :
+		get_argument(f->esp,arg,3);
+		f->eax = read((int) arg[0], (void *) arg[1], (unsigned) arg[2]);
+    break;
+  case SYS_WRITE :
+    get_argument(f->esp,arg,3);
+		f->eax = write((int)arg[0], (const void *) arg[1], (unsigned) arg[2]);
+    break;
+  case SYS_SEEK :
+		get_argument(f->esp,arg,2);
+		seek((int) arg[0], (unsigned) arg[1]);
+    break;
+  case SYS_TELL :
+		get_argument(f->esp,arg,1);
+		f->eax = tell((int) arg[0]);
+    break;
+  case SYS_CLOSE :
+		get_argument(f->esp,arg,1);
+		close((int) arg[0]);
+    break;
+	}
+
+ // thread_exit ();
 }
 
 void check_address(void *addr){
@@ -130,9 +158,14 @@ int filesize(int fd){
 int read (int fd, void * buffer, unsigned size){
   struct file * f;
   off_t t = 0;
-  //lock
+  int i = 0; 
+  lock_acquire(&filesys_lock);
+
   if (fd == 0){
-    input_getc();  
+    while (i < size){
+      ((char*)buffer)[i++] = input_getc();
+    }
+    return i;
   }
   
   f = process_get_file(fd);
@@ -142,15 +175,14 @@ int read (int fd, void * buffer, unsigned size){
   
   t =  file_read(f,buffer,size);
 
-  f->pos += t;
-  //unlock
+  lock_release(&filesys_lock);
   return t;
 }
 int write (int fd, void * buffer, unsigned size){
   struct file * f;
   off_t t = 0;
   
-  //lock
+  lock_acquire(&filesys_lock);
   if (fd == 1){
     putbuf(buffer,size);
   }
@@ -162,8 +194,7 @@ int write (int fd, void * buffer, unsigned size){
 
   t = file_write(fd, buffer, size);
 
-  f->pos += t;
-  //unlock
+  lock_release(&filesys_lock);
   return t;
 }
 void seek(int fd, unsigned position){
@@ -182,18 +213,11 @@ unsigned tell (int fd){
   struct file * f;
   ASSERT(fd > 1 && fd < 64);
 
-  f = process_get_file();
+  f = process_get_file(fd);
   if (f == 0) return -1;
 
   return file_tell(f);
 }
 void close (int fd){
-  struct file * f;
-  ASSERT(fd > 1 && fd < 64);
-
-  f = process_get_file();
-  if (f != 0){
-    file_close(f);
-    palloc_free_page(thread_current()->fdt[fd]);
-  }
+  process_close_file(fd);
 }

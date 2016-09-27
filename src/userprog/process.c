@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -61,7 +62,6 @@ start_process (void *file_name_)
 	int count = 0;//argument의 갯수를 새기위한 변수
   struct intr_frame if_;
   bool success;
-
 
   /*파싱해서 로드 함수의 첫번째 인자로는 함수의 이름을 전달*/
   //fn_copy의 동적할당
@@ -239,18 +239,23 @@ void argument_stack(char **parse, int count, void **esp){
 
 int process_add_file (struct file *f){
   struct thread * t = thread_current(); 
-  (*t->fdt)+next_fd = f;
+  if (f == NULL){
+    return -1;
+  }
+  (t->fdt)[t->next_fd] = f;
   t->next_fd += 1;
   return t->next_fd - 1;
 }
 
 struct file *process_get_file (int fd){
-  ASSERT(fd >= 2 && fd <64);
-  return thread_current()->fdt[fd];
+  if(fd >= 2 && fd <64)
+    return thread_current()->fdt[fd];
+  return NULL;
 }
 
 void process_close_file (int fd){
   struct thread * t = thread_current();
+  if (fd <= 1 || t->next_fd <= fd) return;
   file_close(t->fdt[fd]);
   t->fdt[fd] = NULL;
 }
@@ -311,6 +316,12 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
+  file_close(cur->run_file);
+  while (cur->next_fd > 2){
+    process_close_file(cur->next_fd-1);
+    cur->next_fd --;
+  }
+  palloc_free_page(cur->fdt);
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -327,10 +338,7 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-  while (cur->next_fd > 1){
-    process_close_file(next_fd-1);
-  }
-  palloc_free_page(t->fdt);
+  
 }
 
 /* Sets up the CPU for running user code in the current
@@ -436,14 +444,18 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
-
   /* Open executable file. */
+  lock_acquire(&filesys_lock); 
   file = filesys_open (file_name);
   if (file == NULL) 
     {
+      lock_release(&filesys_lock);
 			printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
+  t->run_file = file; 
+  file_deny_write(file);
+  lock_release(&filesys_lock);
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
