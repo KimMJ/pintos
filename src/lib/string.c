@@ -329,8 +329,8 @@ strlcpy (char *dst, const char *src, size_t size)
 
   ASSERT (dst != NULL);
   ASSERT (src != NULL);
-
   src_len = strlen (src);
+  
   if (size > 0) 
     {
       size_t dst_len = size - 1;

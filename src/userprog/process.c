@@ -29,54 +29,47 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t process_execute (const char *file_name) 
 {
   char *fn_copy;
-	char *save_ptr,*token;//Modified!
+	char *save_ptr,*real_file_name;
   tid_t tid;
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-
-  fn_copy = palloc_get_page (0);
+  fn_copy = palloc_get_page (PAL_ZERO);//it has to be free later.
   if (fn_copy == NULL)
+    return TID_ERROR;
+  real_file_name = palloc_get_page(PAL_ZERO);
+  if (real_file_name == NULL)
     return TID_ERROR;
 
   strlcpy (fn_copy, file_name, PGSIZE);
+  strlcpy (real_file_name, file_name, PGSIZE);
 
-	token = strtok_r(fn_copy," ",&save_ptr);//token은 실행될 함수의 이름
+
+	real_file_name = strtok_r(real_file_name," ",&save_ptr);//token은 실행될 함수의 이름
 
   /* Create a new thread to execute FILE_NAME. */
-  //tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);원래 있던 함수.
-	tid = thread_create(token, PRI_DEFAULT, start_process, file_name);//start_process(fn_copy)를 실행하는 쓰레드 생성. 쓰레드 이름은 token
-  //Ready List 에 추가
-	if (tid == TID_ERROR)
+	tid = thread_create(real_file_name, PRI_DEFAULT, start_process, fn_copy);
+  //쓰레드 이름은 real_file_name, start_process(fn_copy);
+  if (tid == TID_ERROR) 
     palloc_free_page (fn_copy);
-
+  palloc_free_page(real_file_name);
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *file_name_)//k->aux
 {
-  char *file_name,*fn_copy;
+  char *file_name=file_name_;
 	char *token, *save_ptr;//parsing을 위한 포인터
 	int count = 0;//argument의 갯수를 새기위한 변수
   struct intr_frame if_;
-  bool success;
-
+  bool success; 
+  char *parsed[strlen(file_name_)/2+1];
   /*파싱해서 로드 함수의 첫번째 인자로는 함수의 이름을 전달*/
-  //fn_copy의 동적할당
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
-    return TID_ERROR;
-
-  strlcpy (fn_copy, file_name_, PGSIZE);
-  //fn_copy에 입력을 복사('echo x')
-
-	file_name = token = strtok_r(fn_copy, " ", &save_ptr);//parsing했을 때 첫번째 토큰이 파일의 이름(함수의 이름)
-
-	while(token){//while token != NULL
-		token = strtok_r(NULL, " " , &save_ptr);
-		count ++;
+  
+  for (token = strtok_r(file_name, " ", &save_ptr); token != NULL ; token = strtok_r(NULL, " ", &save_ptr)){//while token != NULL
+    parsed[count ++] = token;
 	}//count는 argument의 갯수
 
   memset (&if_, 0, sizeof if_);
@@ -84,18 +77,20 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
 
-	success = load (file_name, &if_.eip, &if_.esp);//function call
-  thread_current()->is_loaded = success;	
-  sema_up(&thread_current()->load_sema);//로드 완료했으니 부모는 일해도 좋음.
-  //로드가 완료 되기 전에 실행되면 로드가 안되는줄 알고 종료됨.
-  
+  success =	load (file_name, &if_.eip, &if_.esp);//function call
+  thread_current()->is_loaded = success;
+  sema_up(&thread_current()->load_sema);
+  //로드 완료했으니 부모는 일해도 좋음.
   //eip는 다음에 실행될 곳의 주소, esp는 스택 포인터
   /* If load failed, quit. */
-  if (!success) 
+  if (!success){
+    palloc_free_page(file_name);
+    //thread_current()->exit_status = -1;
     thread_exit ();
-	argument_stack(&file_name_, count, &if_.esp);//입력을 그대로 넘기고, 총 argument의 갯수, 스택포인터를 넘긴다.)
+  } 
+  argument_stack(parsed, count, &if_.esp);
+  //parsing된 문자를 넘기고 총 argument의 갯수, 스택포인터를 넘긴다.) 
 
-	palloc_free_page (fn_copy);
 
 
   /* Start the user process by simulating a return from an
@@ -104,8 +99,8 @@ start_process (void *file_name_)
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
-	hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);//메모리 확인을 위한 함수
-
+	//hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);//메모리 확인을 위한 함수
+  palloc_free_page(file_name);
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
@@ -116,76 +111,36 @@ start_process (void *file_name_)
 
 /*스택에 데이터를 넣어주는 함수*/
 void argument_stack(char **parse, int count, void **esp){
-	int i,argu_size,*argv_position,*gap;
-//argu_size는 command의 총 크기(마지막 \n까지)
+	int i,j;
+  void * argv_position[count];
+  //argu_size는 command의 총 크기(마지막 \n까지)
 //argv_position는 스택에서 command line파싱이 끝난 부분의 포인터
 //gap는 argv_position에서 해당 argument까지의 거리
-	char *fn_copy,*token,*save_ptr;
-//fn_copy은 command를 복사
-//token, save_ptr은 파싱을 위해 넣은 함수
 
 
-	/* 스택에 넣는 순서 : 제일 먼저 인자들. 인자는 뒤에꺼부터 넣은다.('echo x'에서 x, echo순서로)
-												그 다음 스택포인터의 주소가 4의 배수가 되게 맞춰준다.
-												그 다음 NULL포인터를 넣은다. 왜인지는 수업시간에 들었지만 까먹었다.
-												그 다음 인자들의 포인터를 넣은다. 이것 또한 뒤에꺼부터.(x의 스택에서의 포인터, echo의 스택 포인터 순서)
-												그 다음 char** argv를 넣은다. (방금 넣은 인자들의 포인터 중 argv[0]에 해당하는 것. 함수 이름을 의미
-												그 다음 int argc를 넣은다. 인자들의 개수이므로 count와 같다.
-												그 다음 return address를 넣으면 된다. 여기서는 fake address인 0을 넣는다.
+	/* 스택에 넣는 순서 : 
+    제일 먼저 인자들. 인자는 뒤에꺼부터 넣은다.('echo x'에서 x, echo순서로)
+		그 다음 스택포인터의 주소가 4의 배수가 되게 맞춰준다.
+		그 다음 NULL포인터를 넣은다. 왜인지는 수업시간에 들었지만 까먹었다.
+		그 다음 인자들의 포인터를 넣은다. 이것 또한 뒤에꺼부터.(x의 스택에서의 포인터, echo의 스택 포인터 순서)
+		그 다음 char** argv를 넣은다. (방금 넣은 인자들의 포인터 중 argv[0]에 해당하는 것. 함수 이름을 의미
+		그 다음 int argc를 넣은다. 인자들의 개수이므로 count와 같다.
+		그 다음 return address를 넣으면 된다. 여기서는 fake address인 0을 넣는다.
+		esp는 줄어들어야 한다.
 
-												esp는 줄어들어야 한다.
-
-												예를 들면 스택에 3이라는 int형식의 데이터를 넣고 싶으면
-												*esp -= 4;(sizeof int)
-												*(int*)(*esp) = 3;
-												이런식으로 진행하면 된다.
-
-
-												void** 사용법에 유의해서 사용하면 될 것 같다.
-
-
-												제일 먼저 파싱부터 하자.
+		예를 들면 스택에 3이라는 int형식의 데이터를 넣고 싶으면
+		*esp -= 4;(sizeof int)
+		*(int*)(*esp) = 3;
+		이런식으로 진행하면 된다.
+		void** 사용법에 유의해서 사용하면 될 것 같다.
  */
-
-
-
-	//파싱하는 부분
-		
-	gap = (int *)malloc(sizeof(int)*count);//gap은 argv_position에서 해당 argument까지의 거리
-
-  fn_copy = palloc_get_page (0);
-
-  if (fn_copy == NULL)
-    return TID_ERROR;
-  strlcpy (fn_copy, *parse, PGSIZE);
-	//parse를 fn_copy에 복사
-
-
-	argu_size = strlen(*parse)+1;//argu_size는 command line의 길이. + 1을 해줘야 함(마지막 \n까지 포함하기 위해)
-
-
-
-	for (i = 0, token = strtok_r(fn_copy, " ", &save_ptr) ; token ; token = strtok_r(NULL, " ", &save_ptr), i ++){
-		gap[i] = token - fn_copy;//parsing하면서 gap를 구하는 과정. fn_copy는 항상 가장 앞쪽의 포인터이다.
-	}
-	//"echo x"를 파싱하면 "echo'\n'x'\n'"이렇게 된다.
-
-
-
-
-	//스택에 저장하는 부분
-	*esp -= argu_size;//먼저 스택포인터를 줄인다.
-	argv_position = *esp;//그때의 스택포인터를 argv_position이라고 한다. 나중에 argument들의 포인터를 찾을때 사용할 것
-
-	for (i = 0 ; i < argu_size ; i++){
-		*(char*)(*esp) = fn_copy[i];
-		*esp += 1;
-	}//for문을 이용하여 파싱된 문자를 한글자씩 넣어주는 부분
-
-
-	*esp -= argu_size;//위에서 스택포인터를 올리면서 넣었으므로 다시 내려준다.
-
-
+  for (i = count-1 ; i >= 0 ; i --){
+    for (j = strlen(parse[i]) ; j >= 0 ; j --){
+      *esp -= 1;
+      **(char**)esp = parse[i][j];
+    }
+    argv_position[i] = *esp;
+  }
 
 	//스택 포인터 4로 나눠서 확인 하기
 	if ((int)*esp % 4 !=0){
@@ -196,13 +151,21 @@ void argument_stack(char **parse, int count, void **esp){
 	*esp -= 4;
 	*(int*)(*esp) = 0;
 
-
-	//argument들의 포인터를 스택에 넣는 부분
-	for (i = count-1 ; i >= 0 ; i --){//count만큼 실행하게 한다.
-		*esp -= 4;//void**는 4바이트
-		*(void**)(*esp) = (void*)argv_position + gap[i];//argv_position에서 gap만큼을 더한 것이 argument의 포인터
-  }
+  //argument들의 포인터를 스택에 넣는 부분
+	/*
+  for (i = count-1 ; i >= 0 ; i --){//count만큼 실행하게 한다.
+		
+    *esp -= 4;//void**는 4바이트
+		
+    *(void**)(*esp) = (void*)argv_position + gap[i];//argv_position에서 gap만큼을 더한 것이 argument의 포인터
+  
+  }*/
 	
+  for (i = count ; i > 0 ; i -- ){
+    *esp -= 4;
+    *(char***)*esp = argv_position[i-1];
+  }
+
 	//(char**)argv를 넣는 부분.
 	*esp -= 4;//char**는 4바이트
 	*(char***)(*esp) = (*esp + 4);//현재 스택포인터에서 4바이트 윗 부분이 argument[0]의 포인터이므로.
@@ -214,9 +177,6 @@ void argument_stack(char **parse, int count, void **esp){
 	//return address를 넣는 부분. 여기서는 fake address를 넣음(0)
 	*esp -=4;//int*는 4바이트
 	*(int*)(*esp) = 0;
-
-	free(gap);//gap의 동적할당
-	palloc_free_page(fn_copy);
 }
 
 
@@ -243,21 +203,24 @@ int process_add_file (struct file *f){
     return -1;
   }
   (t->fdt)[t->next_fd] = f;
-  t->next_fd += 1;
+  t->next_fd ++;
   return t->next_fd - 1;
 }
 
 struct file *process_get_file (int fd){
-  if(fd >= 2 && fd <64)
-    return thread_current()->fdt[fd];
-  return NULL;
+  struct thread *t = thread_current();
+  if (fd >= t->next_fd || fd < 2 || t->fdt[fd] == NULL)
+    return NULL;
+  return thread_current()->fdt[fd]; 
 }
 
 void process_close_file (int fd){
   struct thread * t = thread_current();
   if (fd <= 1 || t->next_fd <= fd) return;
-  file_close(t->fdt[fd]);
-  t->fdt[fd] = NULL;
+  if(t->fdt[fd] != NULL){
+    file_close(t->fdt[fd]);
+    t->fdt[fd] = NULL;
+  }
 }
 
 //pseudo code
@@ -275,9 +238,7 @@ struct thread *get_child_process(int pid){
 }
 
 void remove_child_process(struct thread *cp){
-	//부모의 리스트로 가서 제거할 위치를 찾고 제거 없으면??
   list_remove(&cp->child_elem);
-	//메모리 해제
 	palloc_free_page(cp);
 }
 
@@ -304,6 +265,7 @@ process_wait (tid_t child_tid UNUSED)
   }
 
   sema_down(&child_thread->wait_sema);
+  list_remove(&child_thread->child_elem);
   status = child_thread->exit_status;
   remove_child_process(child_thread);	  
   return status;
@@ -315,13 +277,15 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-
-  file_close(cur->run_file);
+  
   while (cur->next_fd > 2){
     process_close_file(cur->next_fd-1);
     cur->next_fd --;
-  }
+  }//열린파일 모두 종료
+
   palloc_free_page(cur->fdt);
+
+  file_close(cur->run_file);
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -447,6 +411,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   /* Open executable file. */
   lock_acquire(&filesys_lock); 
   file = filesys_open (file_name);
+  
   if (file == NULL) 
     {
       lock_release(&filesys_lock);
@@ -540,7 +505,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the //load is successful or not. */
-  //file_close (file);
   return success;
 }
 

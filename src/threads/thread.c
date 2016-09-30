@@ -155,7 +155,7 @@ thread_print_stats (void)
    If thread_start() has been called, then the new thread may be
    scheduled before thread_create() returns.  It could even exit
    before thread_create() returns.  Contrariwise, the original
-   thread may run for any amount of time before the new thread is
+  thread may run for any amount of time before the new thread is
    scheduled.  Use a semaphore or some other form of
    synchronization if you need to ensure ordering.
 
@@ -180,8 +180,8 @@ thread_create (const char *name, int priority,
 		thread_current()->is_loaded = -1;
     return TID_ERROR;
 	}
-	thread_current()->is_loaded = 1;
-  thread_current()->exit_status = 0;
+	//thread_current()->is_loaded = 1;
+  //thread_current()->exit_status = 0;
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
@@ -189,11 +189,11 @@ thread_create (const char *name, int priority,
   t->parents_descriptor = thread_current(); //부모 프로세스 디스크립터 포인터 저장
 	list_push_back(&thread_current()->child_list,&t->child_elem); //자식프로세스 추가
 	
-  sema_init(&t->load_sema,0);
-	sema_init(&t->wait_sema,0);
 
-  t->fdt = palloc_get_page(0);
+  //t->fdt = palloc_get_multiple(PAL_ZERO,2);
+  t->fdt = palloc_get_page(PAL_ZERO);
   t->next_fd = 2;
+
   /* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack' 
      member cannot be observed. */
@@ -309,13 +309,13 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   //유저 프로스세가 종료되면 부모 프로세스 대기상태 이탈 후 진행.
+  //if (thread_current() != initial_thread){
+  //}
   intr_disable ();
-  list_remove (&thread_current()->allelem);
-  if (thread_current() != initial_thread){
-    sema_up(&thread_current()->wait_sema);//자신은 끝났음을 부모에게 알림.
-    thread_current()->is_exited = 1;
-  }
-  thread_current()->status = THREAD_DYING;//쓰레드는 죽음
+  list_remove (&t->allelem);
+  sema_up(&t->wait_sema);//자신은 끝났음을 부모에게 알림.
+  t->is_exited = 1;
+  t->status = THREAD_DYING;//쓰레드는 죽음
   schedule ();
   NOT_REACHED ();
 }
@@ -487,7 +487,9 @@ init_thread (struct thread *t, const char *name, int priority)
 	list_push_back (&all_list, &t->allelem);
 
 	//추가한 애들 초기화
-	list_init(&t->child_list); //얘만 초기화 하면 됨. 나머지는 0으로
+  sema_init(&t->load_sema,0);
+  sema_init(&t->wait_sema,0);
+  list_init(&t->child_list); //얘만 초기화 하면 됨. 나머지는 0으로
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -560,7 +562,7 @@ thread_schedule_tail (struct thread *prev)
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
     {
       ASSERT (prev != cur);
-     // palloc_free_page (prev);
+      //palloc_free_page (prev);
     }
 }
 

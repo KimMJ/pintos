@@ -103,6 +103,8 @@ struct thread
     struct file **fdt; //file descriptor
     int next_fd; //next_fd
     struct file *run_file; 
+    
+    
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
