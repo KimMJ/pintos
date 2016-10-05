@@ -48,6 +48,7 @@ file_close (struct file *file)
   if (file != NULL)
     {
       file_allow_write (file);
+      //파일을 닫을 때 쓰기를 허용해 줍니다.
       inode_close (file->inode);
       free (file); 
     }

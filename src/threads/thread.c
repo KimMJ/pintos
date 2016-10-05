@@ -180,19 +180,19 @@ thread_create (const char *name, int priority,
 		thread_current()->is_loaded = -1;
     return TID_ERROR;
 	}
-	//thread_current()->is_loaded = 1;
-  //thread_current()->exit_status = 0;
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 	
-  t->parents_descriptor = thread_current(); //부모 프로세스 디스크립터 포인터 저장
-	list_push_back(&thread_current()->child_list,&t->child_elem); //자식프로세스 추가
+  t->parents_descriptor = thread_current(); 
+  //부모 프로세스 디스크립터 포인터 저장합니다.
+	list_push_back(&thread_current()->child_list,&t->child_elem); 
+  //자식프로세스를 추가합니다.
 	
-
-  //t->fdt = palloc_get_multiple(PAL_ZERO,2);
   t->fdt = palloc_get_page(PAL_ZERO);
+  //fdt를 할당합니다.
   t->next_fd = 2;
+  //fd0,1은 각각 stdin, stdout입니다.
 
   /* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack' 
@@ -308,14 +308,18 @@ thread_exit (void)
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
-  //유저 프로스세가 종료되면 부모 프로세스 대기상태 이탈 후 진행.
-  //if (thread_current() != initial_thread){
-  //}
+  
   intr_disable ();
   list_remove (&t->allelem);
-  sema_up(&t->wait_sema);//자신은 끝났음을 부모에게 알림.
+  //쓰레드를 리스트에서 지웁니다.
+
+  sema_up(&t->wait_sema);
+  //자신은 끝났음을 부모에게 알림.
+  
   t->is_exited = 1;
-  t->status = THREAD_DYING;//쓰레드는 죽음
+  t->status = THREAD_DYING;
+  //쓰레드는 죽음
+  
   schedule ();
   NOT_REACHED ();
 }

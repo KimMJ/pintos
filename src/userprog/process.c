@@ -33,10 +33,14 @@ tid_t process_execute (const char *file_name)
   tid_t tid;
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (PAL_ZERO);//it has to be free later.
+  
+  fn_copy = palloc_get_page (PAL_ZERO);
+  //fn_copy는 이 함수에서 해재되지 않고 start_process에서 해제합니다.
   if (fn_copy == NULL)
     return TID_ERROR;
+
   real_file_name = palloc_get_page(PAL_ZERO);
+  //real_file_name은 파일 이름을 저장하기 위해 사용한 포인터입니다.
   if (real_file_name == NULL)
     return TID_ERROR;
 
@@ -44,14 +48,17 @@ tid_t process_execute (const char *file_name)
   strlcpy (real_file_name, file_name, PGSIZE);
 
 
-	real_file_name = strtok_r(real_file_name," ",&save_ptr);//token은 실행될 함수의 이름
+	real_file_name = strtok_r(real_file_name," ",&save_ptr);
+  //real_file_name은 실행될 함수의 이름
 
   /* Create a new thread to execute FILE_NAME. */
 	tid = thread_create(real_file_name, PRI_DEFAULT, start_process, fn_copy);
   //쓰레드 이름은 real_file_name, start_process(fn_copy);
   if (tid == TID_ERROR) 
     palloc_free_page (fn_copy);
+  //tid가 error이면 start_process가 실행되지 않으므로 fn_copy를 해제해 주어야 합니다.
   palloc_free_page(real_file_name);
+  
   return tid;
 }
 
@@ -62,13 +69,15 @@ start_process (void *file_name_)//k->aux
 {
   char *file_name=file_name_;
 	char *token, *save_ptr;//parsing을 위한 포인터
-	int count = 0;//argument의 갯수를 새기위한 변수
+	int count = 0;//argc를 위한 변수
   struct intr_frame if_;
   bool success; 
   char *parsed[strlen(file_name_)/2+1];
   /*파싱해서 로드 함수의 첫번째 인자로는 함수의 이름을 전달*/
   
-  for (token = strtok_r(file_name, " ", &save_ptr); token != NULL ; token = strtok_r(NULL, " ", &save_ptr)){//while token != NULL
+  for (token = strtok_r(file_name, " ", &save_ptr); 
+       token != NULL ; 
+       token = strtok_r(NULL, " ", &save_ptr)){//while token != NULL
     parsed[count ++] = token;
 	}//count는 argument의 갯수
 
@@ -77,22 +86,21 @@ start_process (void *file_name_)//k->aux
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
 
-  success =	load (file_name, &if_.eip, &if_.esp);//function call
+  success =	load (file_name, &if_.eip, &if_.esp);
+  //function call
   thread_current()->is_loaded = success;
   sema_up(&thread_current()->load_sema);
-  //로드 완료했으니 부모는 일해도 좋음.
-  //eip는 다음에 실행될 곳의 주소, esp는 스택 포인터
+  //로드 완료했으니 부모는 일해도 좋습니다.
+  
   /* If load failed, quit. */
   if (!success){
     palloc_free_page(file_name);
-    //thread_current()->exit_status = -1;
     thread_exit ();
   } 
   argument_stack(parsed, count, &if_.esp);
-  //parsing된 문자를 넘기고 총 argument의 갯수, 스택포인터를 넘긴다.) 
-
-
-
+  //parsing된 문자를 넘기고 총 argument의 갯수, 스택포인터를 넘깁니다. 
+  palloc_free_page(file_name);
+  //prcoess_execute에서 선언하였던 fn_copy를 해제합니다.
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -100,89 +108,55 @@ start_process (void *file_name_)//k->aux
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
 	//hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);//메모리 확인을 위한 함수
-  palloc_free_page(file_name);
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
 
 
-/***************************Modified!************************/
 
 
 /*스택에 데이터를 넣어주는 함수*/
 void argument_stack(char **parse, int count, void **esp){
 	int i,j;
   void * argv_position[count];
-  //argu_size는 command의 총 크기(마지막 \n까지)
-//argv_position는 스택에서 command line파싱이 끝난 부분의 포인터
-//gap는 argv_position에서 해당 argument까지의 거리
+  //argv_position은 argument들의 포인터를 저장합니다.
 
-
-	/* 스택에 넣는 순서 : 
-    제일 먼저 인자들. 인자는 뒤에꺼부터 넣은다.('echo x'에서 x, echo순서로)
-		그 다음 스택포인터의 주소가 4의 배수가 되게 맞춰준다.
-		그 다음 NULL포인터를 넣은다. 왜인지는 수업시간에 들었지만 까먹었다.
-		그 다음 인자들의 포인터를 넣은다. 이것 또한 뒤에꺼부터.(x의 스택에서의 포인터, echo의 스택 포인터 순서)
-		그 다음 char** argv를 넣은다. (방금 넣은 인자들의 포인터 중 argv[0]에 해당하는 것. 함수 이름을 의미
-		그 다음 int argc를 넣은다. 인자들의 개수이므로 count와 같다.
-		그 다음 return address를 넣으면 된다. 여기서는 fake address인 0을 넣는다.
-		esp는 줄어들어야 한다.
-
-		예를 들면 스택에 3이라는 int형식의 데이터를 넣고 싶으면
-		*esp -= 4;(sizeof int)
-		*(int*)(*esp) = 3;
-		이런식으로 진행하면 된다.
-		void** 사용법에 유의해서 사용하면 될 것 같다.
- */
   for (i = count-1 ; i >= 0 ; i --){
     for (j = strlen(parse[i]) ; j >= 0 ; j --){
       *esp -= 1;
       **(char**)esp = parse[i][j];
-    }
-    argv_position[i] = *esp;
+    }//parsing된 데이터를 스택에 넣어줍니다.
+    argv_position[i] = *esp;//한 argument가 끝날 때마다 스택포인터를 저장합니다.
   }
 
-	//스택 포인터 4로 나눠서 확인 하기
+	//스택 포인터 4로 나눠서 확인 후 word-align을 해줍니다.
 	if ((int)*esp % 4 !=0){
-		*esp -= ((int)*esp % 4)+4;//%4가 음수로 나오기 때문에 양수로 바꾸어 빼주는 과정. 0이면 실행되지 않음
+		*esp -= ((int)*esp % 4)+4;
 	}
 
 	//argument들과 포인터 사이에 NULL을 넣는 부분
 	*esp -= 4;
 	*(int*)(*esp) = 0;
-
-  //argument들의 포인터를 스택에 넣는 부분
-	/*
-  for (i = count-1 ; i >= 0 ; i --){//count만큼 실행하게 한다.
-		
-    *esp -= 4;//void**는 4바이트
-		
-    *(void**)(*esp) = (void*)argv_position + gap[i];//argv_position에서 gap만큼을 더한 것이 argument의 포인터
   
-  }*/
-	
+  //argument들의 포인터를 넣는 부분
   for (i = count ; i > 0 ; i -- ){
     *esp -= 4;
     *(char***)*esp = argv_position[i-1];
   }
 
 	//(char**)argv를 넣는 부분.
-	*esp -= 4;//char**는 4바이트
-	*(char***)(*esp) = (*esp + 4);//현재 스택포인터에서 4바이트 윗 부분이 argument[0]의 포인터이므로.
+	*esp -= 4;
+	*(char****)(*esp) = (*esp + 4);
+  //현재 스택포인터에서 4바이트 윗 부분이 argument[0]의 포인터입니다.
 
 	//argc를 넣는 부분
 	*esp -= 4;
 	*(int*)(*esp) = count;
 
-	//return address를 넣는 부분. 여기서는 fake address를 넣음(0)
-	*esp -=4;//int*는 4바이트
+	//fake address를 넣습니다.(0)
+	*esp -=4;
 	*(int*)(*esp) = 0;
 }
-
-
-/************************************************************/
-
-
 
 /* Waits for thread TID to die and returns its exit status.  If
    it was terminated by the kernel (i.e. killed due to an
@@ -195,35 +169,38 @@ void argument_stack(char **parse, int count, void **esp){
    does nothing. */
 
 
-/*modified*/
-
 int process_add_file (struct file *f){
   struct thread * t = thread_current(); 
   if (f == NULL){
+    //NULL포인터가 들어오면 -1을 리턴합니다.
     return -1;
   }
   (t->fdt)[t->next_fd] = f;
   t->next_fd ++;
+  //file descriptor table에 file을 추가시켜주고 next_fd를 늘려줍니다.
   return t->next_fd - 1;
 }
 
 struct file *process_get_file (int fd){
   struct thread *t = thread_current();
-  if (fd >= t->next_fd || fd < 2 || t->fdt[fd] == NULL)
+  if (fd >= t->next_fd || fd < 2){
+    //유효하지 않은 값이 들어오면 null을 리턴합니다.
     return NULL;
-  return thread_current()->fdt[fd]; 
+  }
+  return t->fdt[fd]; 
 }
 
 void process_close_file (int fd){
   struct thread * t = thread_current();
   if (fd <= 1 || t->next_fd <= fd) return;
+  //유효하지 않은 값에 대해서는 아무 일도 하지 않습니다.
   if(t->fdt[fd] != NULL){
+    //파일이 열려있을 경우 닫아주고 포인터를 null로 바꿉니다.
     file_close(t->fdt[fd]);
     t->fdt[fd] = NULL;
   }
 }
 
-//pseudo code
 struct thread *get_child_process(int pid){
   struct list_elem *elem;
   struct thread *t;
@@ -231,43 +208,37 @@ struct thread *get_child_process(int pid){
 				elem != list_end(&thread_current()->child_list) ; 
 				elem = list_next(elem)){
     if ((t=list_entry(elem,struct thread, child_elem))->tid == pid){
+      //주어진 pid와 같은 쓰레드를 찾았을 경우 그 포인터를 넘겨줍니다.
       return t;
     }
   }	
-  return NULL;
+  return NULL;//찾지 못하면 null을 넘겨줍니다.
 }
 
 void remove_child_process(struct thread *cp){
+  //쓰레드를 제거합니다.
   list_remove(&cp->child_elem);
 	palloc_free_page(cp);
 }
-
-
 
 int
 process_wait (tid_t child_tid UNUSED) 
 {
 	struct thread* child_thread= get_child_process(child_tid);
 	int status;
-  /*
-		자식 프로세스가 종료될 때 까지 대기
-		자식 프로세스가 올바르게 종료되었는지 확인
-	*/
-	/*
-		자식 프로세스의 프로세스 디스크립터 검색
-		예외 처리 발생 시 -1 리턴
-		자식프로세스가 종료될 때까지 부모 프로세스 대기 (세마포어 이용)
-		자식 프로세스 디스크립터 삭제
-		자식 프로세스의 exit status 리턴
-	*/
+  
   if (child_thread == NULL){
+    //tid를 가진 쓰레드가 없으면 -1를 리턴합니다.
     return -1;
   }
 
   sema_down(&child_thread->wait_sema);
-  list_remove(&child_thread->child_elem);
+  //자식 프로세스가 죽을때까지 기다립니다.
+  //list_remove(&child_thread->child_elem);
   status = child_thread->exit_status;
+  //자식 프로세스가 죽고 나면 상태를 기록합니다.
   remove_child_process(child_thread);	  
+  //자식 프로세스를 제거합니다.
   return status;
 }
 
@@ -277,15 +248,19 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-  
+                                                                                                                  
   while (cur->next_fd > 2){
+    //현재 열려있는 파일들을 모두 닫습니다.
     process_close_file(cur->next_fd-1);
     cur->next_fd --;
-  }//열린파일 모두 종료
+  }
 
   palloc_free_page(cur->fdt);
+  //쓰레드의 file descriptor table을 해제합니다.
 
   file_close(cur->run_file);
+  //현재 실행중힌 파일을 닫습니다.
+  
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -410,17 +385,22 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
   /* Open executable file. */
   lock_acquire(&filesys_lock); 
+  //load중에 다른 프로세스에서 파일에 접근하지 못하도록 합니다.
   file = filesys_open (file_name);
   
   if (file == NULL) 
     {
       lock_release(&filesys_lock);
+      //파일이 열리지 않았으면 lock을 해제합니다.
 			printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
+
   t->run_file = file; 
   file_deny_write(file);
+  //불러들인 파일에 대해 쓰기를 거부합니다. 
   lock_release(&filesys_lock);
+  //로드가 끝났으니 락을 풀어줍니다.
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -507,7 +487,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   /* We arrive here whether the //load is successful or not. */
   return success;
 }
-
+
 /* load() helpers. */
 
 static bool install_page (void *upage, void *kpage, bool writable);
