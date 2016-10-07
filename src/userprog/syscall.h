@@ -21,5 +21,6 @@ int write (int fd, void * buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell (int fd);
 void close (int fd);
+int wait(tid_t tid);
 
 #endif /* userprog/syscall.h */

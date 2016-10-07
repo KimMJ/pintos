@@ -177,7 +177,7 @@ thread_create (const char *name, int priority,
   /* Allocate thread. */
   t = palloc_get_page (PAL_ZERO);
   if (t == NULL){
-		thread_current()->is_loaded = -1;
+		thread_current()->is_loaded = false;
     return TID_ERROR;
 	}
   /* Initialize thread. */
@@ -316,7 +316,6 @@ thread_exit (void)
   sema_up(&t->wait_sema);
   //자신은 끝났음을 부모에게 알림.
   
-  t->is_exited = 1;
   t->status = THREAD_DYING;
   //쓰레드는 죽음
   

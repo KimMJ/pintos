@@ -8,6 +8,7 @@
 #include "userprog/process.h" // process_execute(), process_wait()
 #include "filesys/file.h"
 #include "filesys/inode.h"
+#include "devices/input.h"
 
 static void syscall_handler (struct intr_frame *f UNUSED);
 
@@ -27,6 +28,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 
   check_address(esp);
   //esp가 유효한지 검사합니다.
+  
   switch(number){
 	case SYS_HALT:
     halt();
@@ -37,53 +39,53 @@ syscall_handler (struct intr_frame *f UNUSED)
     break;
   case SYS_CREATE :
     get_argument(f->esp, arg, 2);
-		f->eax = create(arg[0],arg[1]);
+		f->eax = create((const char *)arg[0], (unsigned int) arg[1]);
     break;
  	case SYS_REMOVE :
     get_argument(f->esp, arg ,1);
-    f->eax = remove(arg[0]);
+    f->eax = remove((const char *)arg[0]);
     break;
 	case SYS_EXEC:
     get_argument(f->esp,arg,1);
-    f->eax = exec(arg[0]);
+    f->eax = exec((const char *)arg[0]);
     break;
   case SYS_OPEN :
     get_argument(f->esp,arg,1);
-    f->eax = open(arg[0]);
+    f->eax = open((const char *)arg[0]);
     break;
   case SYS_FILESIZE :
     get_argument(f->esp,arg,1);
-    f->eax = filesize(arg[0]);
+    f->eax = filesize((int) arg[0]);
     break;
   case SYS_READ :
 		get_argument(f->esp,arg,3);
-		f->eax = read(arg[0],arg[1],arg[2]);
+		f->eax = read((int) arg[0], (void *)arg[1], (unsigned) arg[2]);
     break;
   case SYS_WRITE :
     get_argument(f->esp,arg,3);
-		f->eax = write(arg[0],arg[1],arg[2]);
+		f->eax = write((int) arg[0], (void *)arg[1], (unsigned) arg[2]);
     break;
   case SYS_SEEK :
 		get_argument(f->esp,arg,2);
-		seek(arg[0],arg[1]);
+		seek((int) arg[0], (unsigned) arg[1]);
     break;
   case SYS_TELL :
 		get_argument(f->esp,arg,1);
-  	f->eax = tell(arg[0]);
+  	f->eax = tell((int) arg[0]);
     break;
   case SYS_CLOSE :
 		get_argument(f->esp,arg,1);
-		close(arg[0]);
+		close((int) arg[0]);
     break;
   case SYS_WAIT : 
     get_argument(f->esp,arg,1);
-    f->eax = wait(arg[0]);
+    f->eax = wait((tid_t) arg[0]);
     break;
 	}
 }
 
 void check_address(void *addr){
-  if (addr>=0xc0000000 || addr <=0x8048000)
+  if ((unsigned int)addr >= 0xc0000000 || (unsigned int)addr <= 0x8048000)
 		exit(-1);
 }
 
@@ -177,7 +179,7 @@ int filesize(int fd){
 int read (int fd, void * buffer, unsigned size){
   struct file * f;
   off_t t = 0;
-  int i = 0; 
+  unsigned int i = 0; 
   check_address(buffer);
   //버퍼가 유효한 값인지 검사합니다.
   lock_acquire(&filesys_lock);
@@ -239,7 +241,6 @@ int write (int fd, void * buffer, unsigned size){
 }
 void seek(int fd, unsigned position){
   struct file * f;
-  off_t t = 0;
   f = process_get_file(fd);
   //유효하지 않은 fd는 null을 리턴합니다.
   if (f != NULL) file_seek(f, position);
