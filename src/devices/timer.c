@@ -92,8 +92,10 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  /*while (timer_elapsed (start) < ticks) 
+    thread_yield ();*/
+  thread_sleep(start + ticks);
+
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +174,22 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+  
+  if (thread_mlfqs){
+    mlfqs_increment();
+    if (ticks % 4 == 0){
+      mlfqs_priority(thread_current());
+    }
+    if (ticks % TIMER_FREQ == 0){
+      printf("hello! ticks = %d\n",ticks);
+      mlfqs_load_avg();
+      mlfqs_recalc();
+    }
+  }
+  
+  if (get_next_tick_to_awake() <= ticks){
+    thread_awake(ticks);
+  } 
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -244,3 +262,4 @@ real_time_delay (int64_t num, int32_t denom)
   ASSERT (denom % 1000 == 0);
   busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000)); 
 }
+

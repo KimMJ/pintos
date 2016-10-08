@@ -103,6 +103,9 @@ struct thread
     int next_fd; //next_fd
     struct file *run_file; 
     
+    int64_t wakeup_tick;//saved tick
+    int nice;
+    int recent_cpu;//실수
     
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -139,6 +142,21 @@ const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
+
+//hw2
+void thread_sleep(int64_t ticks);
+void thread_awake(int64_t ticks);
+void update_next_tick_to_awake(int64_t ticks);
+int64_t get_next_tick_to_awake(void);
+
+void test_max_priority(void);
+bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+
+void mlfqs_priority (struct thread *t);
+void mlfqs_recent_cpu (struct thread *t);
+void mlfqs_load_avg (void);
+void mlfqs_increment (void);
+void mlfqs_recalc (void);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
