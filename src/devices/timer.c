@@ -181,7 +181,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
       mlfqs_priority(thread_current());
     }
     if (ticks % TIMER_FREQ == 0){
-      printf("hello! ticks = %d\n",ticks);
       mlfqs_load_avg();
       mlfqs_recalc();
     }

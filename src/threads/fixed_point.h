@@ -60,7 +60,7 @@ fp_to_int_round (int x)
   return x / F;
 }*/
 int fp_to_int_round(int x){
-  return (x >= 0) ? (x + F / 2) / F : (x - F / 2) / F;
+  return (x >= 0) ? (x + F/2)/F : (x - F/2)/F ;
   //return x / F;
 }
 
@@ -109,7 +109,7 @@ mult_mixed (int x, int y)
 int
 div_fp (int x, int n)
 {
-  return (long long) x * F / n;
+  return (int)((long long) x * F / n);
 }
 
 int
