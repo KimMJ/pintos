@@ -103,8 +103,8 @@ struct thread
     int next_fd; //next_fd
     struct file *run_file; 
     
-    int64_t wakeup_tick;//saved tick
-    int nice;
+    int64_t wakeup_tick;//when to wake up
+    int nice;//정수
     int recent_cpu;//실수
     
     /* Shared between thread.c and synch.c. */

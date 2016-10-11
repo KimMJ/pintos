@@ -92,10 +92,8 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
-  /*while (timer_elapsed (start) < ticks) 
-    thread_yield ();*/
   thread_sleep(start + ticks);
-
+  //현재 tick에서 인자로 들어온 tick만큼 늘린 수를 wakeup_tick으로 지정
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -167,7 +165,7 @@ timer_print_stats (void)
 {
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-
+
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
@@ -175,19 +173,21 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ticks++;
   thread_tick ();
   
-  if (thread_mlfqs){
+  if (thread_mlfqs){//mlfqs라면
     mlfqs_increment();
-    if (ticks % 4 == 0){
+    if (ticks % 4 == 0){//4ticks
       mlfqs_priority(thread_current());
     }
-    if (ticks % TIMER_FREQ == 0){
+    if (ticks % TIMER_FREQ == 0){//1sec
       mlfqs_load_avg();
       mlfqs_recalc();
     }
   }
   
   if (get_next_tick_to_awake() <= ticks){
+    //next_tick_to_awake보다 ticks가 크면 깨울 thread가 있는 상태
     thread_awake(ticks);
+    //깨워야 할 모든 thread를 깨움
   } 
 }
 

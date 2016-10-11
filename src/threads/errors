@@ -1,0 +1,3 @@
+../../devices/timer.c: In function ‘timer_sleep’:
+../../devices/timer.c:97: warning: format ‘%d’ expects type ‘int’, but argument 2 has type ‘int64_t’
+../../devices/timer.c:97: warning: format ‘%d’ expects type ‘int’, but argument 3 has type ‘int64_t’
