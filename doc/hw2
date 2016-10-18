@@ -1,0 +1,30 @@
+1. Alarm System Call
+목표 : pintos의 알람 기능을 Busy waiting에서 sleep/wake up을 이용하여 다시 구현
+
+1) thread 구조체에 자신의 wakeup tick저장 
+2) sleep/wake up구현을 위해 sleep list를 선언
+3) tick을 이용하여 깨워야 할 thread가 있을 경우 깨워서 실행
+4) next_tick_to_awake전역변수를 통해 깨워야 할 thread가 있는지 검사할 때 overhead를 줄여줌
+
+2. Priority Scheduling
+목표 : Round Robin으로 구현된 pintos를 priority scheduling으로 수정
+
+1) Ready list에 새로 추가된 thread가 현재 CPU점유중인 thread의 우선순위보다 높으면 선점
+2) Ready list중에서 우선순위가 가장 높은 thread가 CPU 점유
+
+ready_list를 우선순위에 따라 정렬하여 삽입.(thread_unblock에서)
+따라서 다음 실행할 thread는 우선순위가 가장 높은 thread
+test_max_priority에서 우선순위를 비교하여 priority가 바뀌거나 새로운 thread가 생길때마다 다시 스케줄링
+
+3. Multi-Level Feedbaack Queue Schedule
+목표 : Multi-Level Feedback Queue구현
+
+1) pintos에는 실수 연산이 없으므로 실수 연산을 할 수 있도록 만들어야 한다.
+2) mlfqs에서 필요한 priority,nice,recent_cpu,load_avg추가. 
+   이 때 priority,nice는 정수, recent_cpu, load_avg는 실수로 취급
+
+mlfqs를 사용할 때는 mlfqs가 true로 설정된다. 이를 이용하여 mlfqs일 때, 아닐때를 구분해야 한다.
+priority에 영향을 주는 nice, recent_cpu가 업데이트 될 때 마다 다시 스케줄링해야 한다.
+recent_cpu와 load_avg는 실수인데, 이를 꼭 헷갈리지 말아야 한다.
+그러나 get_recent_cpu와 get_load_avg는 실수에 100을 곱해서 정수형태로 바꾸어 주어야 하는데,
+실제 출력하는 곳에서 그런 형식을 요구하기 때문이다
