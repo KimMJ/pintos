@@ -4,7 +4,11 @@
 #include "threads/thread.h"
 
 void syscall_init (void);
-void check_address (void *addr);
+//void check_address (void *addr, void *esp);
+struct vm_entry *check_address(void *addr, void *esp);
+void check_valid_buffer(void *buffer, unsigned size, void *esp, bool to_write);
+void check_valid_string (const void *str, void *esp);
+
 void get_argument (void *esp, int *arg, int count);
 
 void halt (void);
@@ -22,5 +26,7 @@ void seek(int fd, unsigned position);
 unsigned tell (int fd);
 void close (int fd);
 int wait(tid_t tid);
+
+
 
 #endif /* userprog/syscall.h */

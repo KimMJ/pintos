@@ -27,8 +27,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 	void *esp = f->esp;
 	int number = *(int *)(f->esp);
 	int arg[4];						
-//  printf("hry\n");
-  //printf("number = %d, esp = %x\n",number,esp);
+
   check_address(esp, esp);
   switch(number){
 	case SYS_HALT:
@@ -36,12 +35,10 @@ syscall_handler (struct intr_frame *f UNUSED)
     break;
 	case SYS_EXIT:
     get_argument(f->esp,arg,1);
-    //printf("%d\n",arg[0]);
     exit(arg[0]);
     break;
   case SYS_CREATE :
     get_argument(f->esp, arg, 2);
-    check_valid_string((void *)arg[0],esp);
 		f->eax = create((const char *)arg[0], (unsigned int) arg[1]);
     break;
  	case SYS_REMOVE :
@@ -70,7 +67,6 @@ syscall_handler (struct intr_frame *f UNUSED)
   case SYS_WRITE :
     get_argument(f->esp,arg,3);
     check_valid_buffer((void *)arg[1], (unsigned) arg[2], esp, false);
-
 		f->eax = write((int) arg[0], (void *)arg[1], (unsigned) arg[2]);
     break;
   case SYS_SEEK :
@@ -93,16 +89,14 @@ syscall_handler (struct intr_frame *f UNUSED)
 }
 
 struct vm_entry *check_address(void *addr, void *esp UNUSED){
-  //printf("addr = %x,thread_name = %s\n",addr,thread_name());
-  if (addr >= (void *)0xc0000000 || addr <= (void *)0x08048000){
-//    printf("hello\n");
+  printf("addr = %x\n",addr);
+  if (addr >= (void *)0xc0000000 || addr <= (void *)0x8048000){
 		exit(-1);
   }
   struct vm_entry *e = find_vme(addr);
   
   if (e == NULL){
-    exit(-1);
-    //printf("null\n");
+    //exit(-1);
   }
 
   return e;
@@ -111,9 +105,8 @@ struct vm_entry *check_address(void *addr, void *esp UNUSED){
 void check_valid_buffer(void *buffer, unsigned size, void *esp UNUSED, bool to_write){
   int tmp_size = size;
   while (tmp_size >= 0) {
-    //printf("buffer = %x\n",buffer);
-    struct vm_entry *e = check_address(buffer + tmp_size,0);
-    //printf("5\n");
+    struct vm_entry *e = check_address(buffer + size,0);
+    printf("this\n"); 
     if (e == NULL) {
       exit(-1);
     }
@@ -127,7 +120,7 @@ void check_valid_buffer(void *buffer, unsigned size, void *esp UNUSED, bool to_w
 
 void check_valid_string(const void *str, void *esp UNUSED){
   struct vm_entry *e = check_address((void *)str,0);
-  //printf("1\n");
+
   if (e == NULL){
     exit(-1);
   }
@@ -140,8 +133,7 @@ void get_argument(void *esp, int *arg, int count){
 	
   for (i = 0 ; i < count ; i ++){
     //check_address(esp+4*i+4);
-    check_address(esp+4*i+4,0);
-    //printf("2\n");
+    //얻고자 하는 데이터가 유저스택안에 있는 지 확인합니다.
 		arg[i] = *(int *)(esp + 4*i + 4);
 	}
 
@@ -225,11 +217,8 @@ int read (int fd, void * buffer, unsigned size){
   struct file * f;
   off_t t = 0;
   unsigned int i = 0; 
-  struct vm_entry *e = check_address(buffer,0);
-  //printf("6\n");
-  if (e == NULL){
-    exit(-1);
-  }
+  //check_address(buffer);
+
   //버퍼가 유효한 값인지 검사합니다.
   lock_acquire(&filesys_lock);
   //read중에 다른 프로세서에서 접근을 막습니다.
@@ -261,12 +250,8 @@ int read (int fd, void * buffer, unsigned size){
 int write (int fd, void * buffer, unsigned size){
   struct file * f;
   off_t t = 0;
-  struct vm_entry *e = check_address(buffer,0); 
+  check_address(buffer,0); 
   //버퍼가 유효한지 검사합니다.
-  if (e == NULL){
-    exit(-1);
-  }
-  //printf("e->vaddr = %x\n",e->vaddr); 
   lock_acquire(&filesys_lock);
   /*
   if (fd == 0){

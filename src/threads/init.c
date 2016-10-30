@@ -21,6 +21,7 @@
 #include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/pte.h"
+#include "vm/page.h"
 #include "threads/thread.h"
 #ifdef USERPROG
 #include "userprog/process.h"
