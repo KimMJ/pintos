@@ -4,6 +4,7 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "vm/page.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -152,7 +153,7 @@ page_fault (struct intr_frame *f)
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
   
-/*  
+/*
   printf ("Page fault at %p: %s error %s page in %s context.\n",
           fault_addr,
           not_present ? "not present" : "rights violation",
@@ -160,6 +161,7 @@ page_fault (struct intr_frame *f)
           user ? "user" : "kernel");
   kill (f);
 */
+  
   if (!check_address(fault_addr,0)){
     exit(-1);
   }
@@ -167,16 +169,13 @@ page_fault (struct intr_frame *f)
 
   if (not_present){
     struct vm_entry *e = find_vme(fault_addr);
-  //printf("11\n");
     int handle_fault = 1;
     if (e != NULL ) {
-    //printf("12\n");
       handle_fault = handle_mm_fault(e);
     }
     if (handle_fault == 0){
       exit(-1);
     }
-    /*제대로 되었는지 검사하기*/
   }
   else{
     exit(-1);

@@ -253,22 +253,21 @@ process_exit (void)
   uint32_t *pd;
                                                                                                                   
   while (cur->next_fd > 2){
-    //현재 열려있는 파일들을 모두 닫습니다.
     process_close_file(cur->next_fd-1);
     cur->next_fd --;
   }
 
   palloc_free_page(cur->fdt);
-  //쓰레드의 file descriptor table을 해제합니다.
 
   file_close(cur->run_file);
-  //현재 실행중힌 파일을 닫습니다.
   
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
-
+  //vm_entry를 해제하는 함수 삽입
 
   //destory vm_entry;
+  munmap(CLOSE_ALL);
+
   vm_destroy(&cur->vm);
 
   pd = cur->pagedir;
@@ -638,27 +637,27 @@ setup_stack (void **esp)
 {
   uint8_t *kpage;
   bool success = false;
-  //void * vaddr = (uint8_t *)PHYS_BASE - PGSIZE;
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  //printf("phys_base = %x, pgsize = %x, vaddr = %x\n",PHYS_BASE,PGSIZE,vaddr);
-  if (kpage != NULL) 
-    {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      else
-        palloc_free_page (kpage);
-    }
 
   struct vm_entry *e = (struct vm_entry *)malloc(sizeof(struct vm_entry));
   if (e == NULL){
     return false;
   } 
-  //printf("?? = %x\n");
+  
+  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  if (kpage != NULL) 
+    {
+      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+      if (success)
+        *esp = PHYS_BASE;
+      else{
+        palloc_free_page (kpage);
+        return false;
+      }
+    }
+
   memset(e,0x00, sizeof(struct vm_entry));
   e->type = VM_ANON;
   e->vaddr = (((uint8_t *)PHYS_BASE) - PGSIZE);
-  //printf("e->vaddr = %x\n",e->vaddr);
   e->writable = true;
   e->is_loaded = true;
   success = insert_vme(&thread_current()->vm, e);
@@ -690,15 +689,12 @@ bool handle_mm_fault(struct vm_entry *vme){
   //printf("mmfault = %x\n",vme->vaddr);
 
   if (kaddr == NULL) {
-    //printf("13\n");
     palloc_free_page(kaddr);
     return false;
   }
   if (vme->is_loaded){
-    //printf("14\n");
     return false;
   }
-    //printf("vme->type = %d\n",vme->type);
   switch (vme->type){
     case VM_BIN :
       load_file(kaddr, vme);//load on physical memory
@@ -708,9 +704,17 @@ bool handle_mm_fault(struct vm_entry *vme){
       return vme->is_loaded;
       break;
     case VM_FILE :
+      
+      load_file(kaddr, vme);
+      if (install_page(vme->vaddr, kaddr, vme->writable)){
+        vme->is_loaded = true;
+      }
+      return vme->is_loaded;
+      //데이터 로드할 수 있도록 수정
       break;
     case VM_ANON:
       break;
   }
   return false;
 }
+

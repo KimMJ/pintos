@@ -12,6 +12,7 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "threads/fixed_point.h"
+#include "vm/page.h"
 
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -233,6 +234,8 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);//unblock은 ready_list에 추가함.
   
+  //test_max_priority();
+  
   if (thread_current()->priority < t->priority){
     thread_yield();
   }//새로 추가된 thread의 우선순위가 현재 thread의 우선순위보다 높으면 양보
@@ -275,7 +278,7 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
   
   //list_push_back (&ready_list, &t->elem);
-  //list_insert_priority(&ready_list, &t->elem);
+  //list_sort(&ready_list,cmp_priority,0);
   list_insert_ordered(&ready_list, &t->elem, cmp_priority, 0);
   //순서에 맞게 삽입
   t->status = THREAD_READY;
@@ -358,6 +361,7 @@ thread_yield (void)
   old_level = intr_disable ();
   if (cur != idle_thread) 
     list_insert_ordered(&ready_list, &cur->elem, cmp_priority, 0);
+    //list_push_back(&ready_list,&cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -386,7 +390,13 @@ thread_set_priority (int new_priority)
 {
   if (thread_mlfqs) return;//mlfqs일 경우 실행하지 않음
   intr_disable();
+
   thread_current ()->priority = new_priority;
+  thread_current()->init_priority = new_priority;
+  
+  refresh_priority();
+  donate_priority(); //hw2
+  
   intr_enable();
   test_max_priority();//priority를 변경했을 때 우선순위에 따라 다시 스케줄링
 }
@@ -545,6 +555,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t->nice = NICE_DEFAULT;
   t->recent_cpu = RECENT_CPU_DEFAULT;
 
+  //hw3
+  t->init_priority = t->priority;
+  t->wait_on_lock = NULL;
+  list_init(&t->donations); 
+  list_init(&t->mmap_list);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -638,7 +653,6 @@ schedule (void)
   ASSERT (intr_get_level () == INTR_OFF);
   ASSERT (cur->status != THREAD_RUNNING);
   ASSERT (is_thread (next));
-
   if (cur != next)
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);
@@ -715,7 +729,7 @@ int64_t get_next_tick_to_awake(void){
 
 void 
 test_max_priority(void){
-  /*현재 수행중인 스레드와 가장 높은 우선순위의 스레드의 우선순위를 비교하여 스케줄링*/
+
   if (list_empty(&ready_list)) return;
   //ready_list가 비어있으면 실행하지 않음.
 
@@ -723,8 +737,21 @@ test_max_priority(void){
   //가장 큰 priority는 ready_list에서 가장 앞부분
 
   if (thread_current()->priority < max_priority){
-    thread_yield();
+    //printf("max_thread : %s\n",
+    //list_entry(list_begin(&ready_list), struct thread, elem)->name);
+    //printf("thread_name() = %s, max_priority = %d, thread_cur_priority = %d\n",thread_name(),max_priority, thread_current()->priority);
+     
+    //list_entry(list_begin(&ready_list), struct thread, elem)->name);
+    if(thread_current() != idle_thread)
+      thread_yield();
   }//현재 thread보다 큰 priority의 thread가 있으면 양보
+  
+}
+
+void check_vm(void){
+  struct thread *t = list_entry(list_begin(&ready_list), struct thread, elem);
+  printf("name is %s, priority is %d, current is %s\n",t->name, t->priority,thread_name());
+  printf("is ready_list empty? %d\n",list_empty(&ready_list));
 }
 
 bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
@@ -801,5 +828,68 @@ void mlfqs_recalc (void){
     struct thread *t = list_entry(e, struct thread, allelem);
     mlfqs_recent_cpu(t);//recent_cpu 재계산
     mlfqs_priority(t);//priority 재계산
+  }
+}
+
+//hw3
+
+void donate_priority(void){
+  
+  int count = 8;
+  struct thread *t = thread_current();
+  //int donate_priority = t->priority;
+  struct list_elem *tmp_elem;
+  
+  while (count > 0 && t->wait_on_lock
+          && (t->wait_on_lock->holder)){
+    t = t->wait_on_lock->holder;
+    if (t->priority <= thread_current()->priority){
+      t->priority = thread_current()->priority;//holder의 priority를 현재쓰레드것으로 바꿈.
+    }
+    /*
+    for (tmp_elem = list_begin(&t->donations) ; 
+         tmp_elem != list_end(&t->donations) ;
+         tmp_elem = list_next(tmp_elem)){
+      struct thread *tmp = list_entry(tmp_elem, struct thread, donation_elem);
+      if (t->priority < tmp->priority){
+        t->priority = tmp->priority;
+      }
+    }*/
+    count --;
+  }
+}
+
+void remove_with_lock(struct lock *lock){
+  struct list_elem *tmp_elem;
+  struct thread *t, *cur = thread_current();
+  for ( tmp_elem = list_begin(&cur->donations) ; 
+			  tmp_elem != list_end(&cur->donations) ; ) {
+
+    t = list_entry(tmp_elem, struct thread, donation_elem);
+    if (t->wait_on_lock == lock){
+      tmp_elem = list_remove(tmp_elem);
+    } else {
+      tmp_elem = list_next(tmp_elem);
+    }
+  }  
+}
+
+
+//what the fuck
+void refresh_priority(void){
+  struct thread *t, *cur = thread_current();
+  struct list_elem *tmp_elem;
+
+  cur->priority = cur->init_priority;
+  //cur->init_priority = cur->priority;
+  for ( tmp_elem = list_begin(&cur->donations) ; 
+			  tmp_elem != list_end(&cur->donations) ; 
+        tmp_elem = list_next(tmp_elem)) {
+   
+    t = list_entry(tmp_elem, struct thread, donation_elem);
+   
+    if (t->priority > cur->priority){
+      cur->priority = t->priority;
+    }
   }
 }

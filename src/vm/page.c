@@ -40,7 +40,6 @@ bool insert_vme(struct hash *vm, struct vm_entry *vme){
   if (hash_insert(vm, &vme->elem) == NULL){
     return true;
   }
-
   return false;
 }
 
@@ -76,6 +75,7 @@ void vm_destroy(struct hash *vm){
 
 bool load_file (void *kaddr, struct vm_entry *vme){
   //locking
+  //intr_disable();
   if(file_read_at(vme->file, kaddr, vme->read_bytes, vme->offset) != vme->read_bytes){
     return false;
   }
@@ -83,6 +83,6 @@ bool load_file (void *kaddr, struct vm_entry *vme){
   if (vme->zero_bytes > 0){
     memset(vme->read_bytes + kaddr, 0x00, vme->zero_bytes);
   }
-
+  //intr_enable();
   return true;
 }

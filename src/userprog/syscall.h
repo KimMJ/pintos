@@ -3,6 +3,8 @@
 
 #include "threads/thread.h"
 
+#define CLOSE_ALL -1
+
 void syscall_init (void);
 //void check_address (void *addr, void *esp);
 struct vm_entry *check_address(void *addr, void *esp);
@@ -27,6 +29,8 @@ unsigned tell (int fd);
 void close (int fd);
 int wait(tid_t tid);
 
-
+mapid_t mmap(int fd, void *addr);
+void munmap(mapid_t mapping);
+void do_munmap(struct mmap_file *mmap_file);
 
 #endif /* userprog/syscall.h */

@@ -8,6 +8,10 @@
 #define VM_ANON 2
 
 #include "lib/kernel/hash.h"
+#include "filesys/filesys.h"
+#include "lib/kernel/list.h"
+
+typedef int mapid_t;
 
 struct vm_entry{
   uint8_t type;// VM_BIN, VM_FILE, VM_ANON
@@ -43,5 +47,14 @@ bool delete_vme(struct hash *vm, struct vm_entry *vme);
 struct vm_entry *find_vme(void *vaddr);
 void vm_destroy(struct hash *vm);
 bool load_file(void *kaddr, struct vm_entry *vme);
+
+
+//Memory Mapped File
+struct mmap_file{
+  int mapid;
+  struct file* file;
+  struct list_elem elem;//head is mmap_list in struct thread
+  struct list vme_list;//all vm_entry's list about mmap_file
+};
 
 #endif

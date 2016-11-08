@@ -9,6 +9,7 @@
 #include "threads/io.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
+#include "threads/thread.h"
 
 /* The code in this file is an interface to an ATA (IDE)
    controller.  It attempts to comply to [ATA-3]. */
@@ -514,6 +515,13 @@ interrupt_handler (struct intr_frame *f)
         if (c->expecting_interrupt) 
           {
             inb (reg_status (c));               /* Acknowledge interrupt. */
+            //printf("%s : why??\n",c->name);
+            //printf("%d\n", list_empty(&c->completion_wait.waiters));
+            //check_vm(); 
+            struct thread *t = list_entry(
+                list_begin(&c->completion_wait.waiters), 
+                struct thread, elem);
+            //printf("waiter? %s, thread_current() : %s\n",t->name,thread_name());
             sema_up (&c->completion_wait);      /* Wake up waiter. */
           }
         else

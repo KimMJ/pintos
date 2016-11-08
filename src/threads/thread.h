@@ -4,7 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-#include "synch.h"
+#include "threads/synch.h"
 #include "vm/page.h"
 /* States in a thread's life cycle. */
 enum thread_status
@@ -106,6 +106,15 @@ struct thread
     int64_t wakeup_tick;//when to wake up
     int nice;//정수
     int recent_cpu;//실수
+
+    //hw3
+    int init_priority;
+    struct lock *wait_on_lock;
+    struct list donations;
+    struct list_elem donation_elem;
+    
+    //Memory Mapped File
+    struct list mmap_list;
     
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -162,6 +171,12 @@ void mlfqs_load_avg (void);
 void mlfqs_increment (void);
 void mlfqs_recalc (void);
 
+//hw3
+
+void donate_priority(void);
+void remove_with_lock(struct lock *lock);
+void refresh_priority(void);
+
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
 void thread_foreach (thread_action_func *, void *);
@@ -173,5 +188,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void check_vm(void);
 
 #endif /* threads/thread.h */

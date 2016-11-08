@@ -10,9 +10,11 @@
 #include "filesys/inode.h"
 #include "devices/input.h"
 #include "threads/vaddr.h"
+#include "userprog/pagedir.h"
 #include "vm/page.h"
 
 static void syscall_handler (struct intr_frame *f UNUSED);
+static struct lock mapid_lock;
 
 void
 syscall_init (void) 
@@ -89,22 +91,38 @@ syscall_handler (struct intr_frame *f UNUSED)
     get_argument(f->esp,arg,1);
     f->eax = wait((tid_t) arg[0]);
     break;
+  case SYS_MMAP :
+    get_argument(f->esp, arg, 2);
+    f->eax = mmap((int)arg[0], (void*) arg[1]);
+    break;
+  case SYS_MUNMAP : 
+    get_argument(f->esp, arg, 2);
+    munmap((int)arg[0]);
+    break;
+  default :
+    printf("what the fuck\n");
+    break;
 	}
+}
+
+void check_user_stack(void *addr){
+  if (addr >= (void *)0xc0000000 || addr <= (void *)0x08048000){
+		exit(-1);
+  }
 }
 
 struct vm_entry *check_address(void *addr, void *esp UNUSED){
   //printf("addr = %x,thread_name = %s\n",addr,thread_name());
   if (addr >= (void *)0xc0000000 || addr <= (void *)0x08048000){
-//    printf("hello\n");
 		exit(-1);
   }
   struct vm_entry *e = find_vme(addr);
   
   if (e == NULL){
-    exit(-1);
     //printf("null\n");
+    exit(-1);
   }
-
+  //printf("normal\n");
   return e;
 }
 
@@ -307,4 +325,136 @@ unsigned tell (int fd){
 void close (int fd){
   process_close_file(fd);
   //fd가 유효하지 않으면 아무일도 하지 않습니다.
+}
+
+
+//Memory Mapped File
+static mapid_t allocate_mapid (void) {
+  //printf("int allocate_mapid\n");
+  static mapid_t next_mapid = 1;
+  mapid_t mapid;
+
+  //printf("here4\n");
+  //lock_acquire (&mapid_lock);
+  mapid = next_mapid++;
+  //lock_release (&mapid_lock);
+  
+
+  return mapid;
+}
+
+mapid_t mmap(int fd, void *addr){
+  //이미 한 addr에 대해 mmap할 때, over-code, over-data, over-stk 
+  //printf("")
+  if (pg_ofs(addr) != 0 || addr == NULL) return -1;
+  mapid_t mapid=0;
+
+
+  struct file *file = file_reopen(process_get_file(fd));
+
+  if (file != NULL){
+    //allocate mapid
+    int read_bytes = 0, zero_bytes =0;
+    off_t ofs = 0;
+    //file 에 대한 정보들 읽자.
+    int total_size = file_length(file);
+
+    read_bytes = (uint32_t)total_size;
+    mapid = allocate_mapid();
+    
+    //make mmap_file and initialize
+    //해당 파일에 대한 mmap_file구조체 생성
+    struct mmap_file *m = malloc(sizeof(struct mmap_file)); 
+    memset(m, 0, sizeof *m);
+    if (m == NULL){
+      return -1;
+    }
+
+    m->mapid = mapid;
+    m->file = file;
+    list_init(&m->vme_list);
+    
+    //make vm_entry and initialize
+    //파일에 대한 vm_entry들 생성하여 vme_list에 넣을 것.
+    while (read_bytes > 0 || zero_bytes > 0){
+      if (find_vme(addr)) return -1;
+      size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+      size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+      struct vm_entry * e = malloc(sizeof(struct vm_entry));
+    
+      memset(e, 0, sizeof(struct vm_entry));
+
+      if (e == NULL){
+        return -1;
+      }
+      //file에 대한 정보는???
+      e->type = VM_FILE;
+      e->offset = ofs;
+      e->writable = true;
+      e->read_bytes = page_read_bytes;
+      e->zero_bytes = page_zero_bytes;
+      e->file = file;
+      e->vaddr = addr;
+
+      list_push_back(&m->vme_list, &e->mmap_elem);
+      insert_vme(&thread_current()->vm, e);
+
+      read_bytes -= page_read_bytes;
+      zero_bytes -= page_zero_bytes;
+      addr += PGSIZE;
+      ofs += page_read_bytes;
+    }
+    list_push_back(&thread_current()->mmap_list, &m->elem);
+    return mapid;
+  }
+  return -1;
+}
+
+void munmap(mapid_t mapping){  
+  //mmap_list에서 mapping에 해당하는 모든 vm_entry를 해제
+  struct thread *cur = thread_current();
+  struct list_elem *e;
+  for (e = list_begin(&cur->mmap_list);
+       e != list_end(&cur->mmap_list);){
+
+    struct mmap_file *m = list_entry(e, struct mmap_file, elem);
+    ASSERT(m != NULL);
+    if (m->mapid == mapping || mapping == CLOSE_ALL ){
+      //printf("go to munmap\n");
+      do_munmap(m);
+      e = list_remove(e);
+      //printf("hello1\n");
+      file_close(m->file);
+      free(m);
+      //printf("hello2\n");
+    }else {
+      e = list_next(e);
+    }
+  }
+}
+
+void do_munmap(struct mmap_file *mmap_file){
+  //페이지 테이블 엔트리 제거중
+  struct list_elem *e;
+  //ASSERT(!list_empty(&mmap_file->vme_list));
+  for (e = list_begin(&mmap_file->vme_list) ;
+       e != list_end(&mmap_file->vme_list) ; ){
+
+    //printf("e = %x\n",e);
+//    void *pd = pagedir_get_page(thread_current()->pagedir, e->vaddr);
+    void *pd = thread_current()->pagedir;
+    struct vm_entry *vme = list_entry(e, struct vm_entry, mmap_elem);
+    //printf("in do munmap\n");
+
+    //printf("vme = %x\n",vme->vaddr);
+    if (vme->is_loaded && pagedir_is_dirty(pd,vme->vaddr)){//if dirty
+      //printf("writing\n");
+      file_write_at(mmap_file->file, vme->vaddr, vme->read_bytes, vme->offset);
+      pagedir_clear_page(pd,vme->vaddr);
+    }
+    //printf("in do munmapasdf\n");
+    e = list_remove(e);
+    delete_vme(&thread_current()->vm,vme);
+  }
 }
