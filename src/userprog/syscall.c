@@ -114,6 +114,7 @@ void check_user_stack(void *addr){
 struct vm_entry *check_address(void *addr, void *esp UNUSED){
   //printf("addr = %x,thread_name = %s\n",addr,thread_name());
   if (addr >= (void *)0xc0000000 || addr <= (void *)0x08048000){
+    //printf("fucking pintos %x\n",addr);
 		exit(-1);
   }
   struct vm_entry *e = find_vme(addr);
@@ -344,6 +345,7 @@ static mapid_t allocate_mapid (void) {
 }
 
 mapid_t mmap(int fd, void *addr){
+  //printf("mmap\n");
   //이미 한 addr에 대해 mmap할 때, over-code, over-data, over-stk 
   //printf("")
   if (pg_ofs(addr) != 0 || addr == NULL) return -1;
@@ -351,6 +353,7 @@ mapid_t mmap(int fd, void *addr){
 
 
   struct file *file = file_reopen(process_get_file(fd));
+
 
   if (file != NULL){
     //allocate mapid
@@ -365,14 +368,15 @@ mapid_t mmap(int fd, void *addr){
     //make mmap_file and initialize
     //해당 파일에 대한 mmap_file구조체 생성
     struct mmap_file *m = malloc(sizeof(struct mmap_file)); 
-    memset(m, 0, sizeof *m);
     if (m == NULL){
       return -1;
     }
+    memset(m, 0, sizeof *m);
 
     m->mapid = mapid;
     m->file = file;
     list_init(&m->vme_list);
+    list_push_back(&thread_current()->mmap_list, &m->elem);
     
     //make vm_entry and initialize
     //파일에 대한 vm_entry들 생성하여 vme_list에 넣을 것.
@@ -405,56 +409,60 @@ mapid_t mmap(int fd, void *addr){
       addr += PGSIZE;
       ofs += page_read_bytes;
     }
-    list_push_back(&thread_current()->mmap_list, &m->elem);
     return mapid;
   }
   return -1;
 }
 
 void munmap(mapid_t mapping){  
+//  printf("munmap\n");
   //mmap_list에서 mapping에 해당하는 모든 vm_entry를 해제
   struct thread *cur = thread_current();
-  struct list_elem *e;
-  for (e = list_begin(&cur->mmap_list);
-       e != list_end(&cur->mmap_list);){
-
+  struct list_elem *e, *tmp;
+  for (e = list_begin(&cur->mmap_list) ;
+       e != list_end(&cur->mmap_list) ; ){
+    //tmp = list_next(e);
     struct mmap_file *m = list_entry(e, struct mmap_file, elem);
     ASSERT(m != NULL);
     if (m->mapid == mapping || mapping == CLOSE_ALL ){
+      e = list_remove(e);
       //printf("go to munmap\n");
       do_munmap(m);
-      e = list_remove(e);
-      //printf("hello1\n");
-      file_close(m->file);
-      free(m);
-      //printf("hello2\n");
     }else {
       e = list_next(e);
     }
+    //e = tmp;
   }
 }
 
 void do_munmap(struct mmap_file *mmap_file){
-  //페이지 테이블 엔트리 제거중
-  struct list_elem *e;
+//  printf("do_munmap\n");
+  //mmap_file의 vme_list를 삭제하는 과정.
+  //vme_list의 vme들은 thread와 공유중
+  
+  struct list_elem *e, *tmp;
   //ASSERT(!list_empty(&mmap_file->vme_list));
   for (e = list_begin(&mmap_file->vme_list) ;
        e != list_end(&mmap_file->vme_list) ; ){
-
-    //printf("e = %x\n",e);
-//    void *pd = pagedir_get_page(thread_current()->pagedir, e->vaddr);
+    tmp = list_next(e);
     void *pd = thread_current()->pagedir;
     struct vm_entry *vme = list_entry(e, struct vm_entry, mmap_elem);
-    //printf("in do munmap\n");
 
-    //printf("vme = %x\n",vme->vaddr);
     if (vme->is_loaded && pagedir_is_dirty(pd,vme->vaddr)){//if dirty
-      //printf("writing\n");
       file_write_at(mmap_file->file, vme->vaddr, vme->read_bytes, vme->offset);
-      pagedir_clear_page(pd,vme->vaddr);
+      //vme->vaddr을 가지고 page를 얻어서 free_page할 것.
+      struct page* page;
+      //page = find_page_with_kaddr(pagedir_get_page(thread_current()->pagedir, vme->vaddr));
+      
+      //free_page(page);
+      free_page(pagedir_get_page(thread_current()->pagedir, vme->vaddr));
+      pagedir_clear_page(pd, vme->vaddr);
     }
-    //printf("in do munmapasdf\n");
-    e = list_remove(e);
+    vme->is_loaded = false;
+    e = tmp;
     delete_vme(&thread_current()->vm,vme);
   }
+  //file_close(mmap_file->file);
+  //list_remove(&mmap_file->elem);//for thread
+  free(mmap_file);
 }

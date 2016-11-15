@@ -643,14 +643,21 @@ setup_stack (void **esp)
     return false;
   } 
   
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
+  struct page *page = alloc_page(PAL_USER | PAL_ZERO);
+  //kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  kpage = page->kaddr;
+
+  if (kpage != NULL || page != NULL) 
     {
+      page->vme = e;
+      add_page_to_lru_list(page);
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
         *esp = PHYS_BASE;
       else{
-        palloc_free_page (kpage);
+        //palloc_free_page (kpage);
+        free_page(page);
+        free(e);
         return false;
       }
     }
@@ -660,6 +667,7 @@ setup_stack (void **esp)
   e->vaddr = (((uint8_t *)PHYS_BASE) - PGSIZE);
   e->writable = true;
   e->is_loaded = true;
+  
   success = insert_vme(&thread_current()->vm, e);
   return success;
 }
@@ -685,16 +693,24 @@ install_page (void *upage, void *kpage, bool writable)
 }
 
 bool handle_mm_fault(struct vm_entry *vme){
-  void *kaddr = palloc_get_page(PAL_USER | PAL_ZERO);
+  //printf("handle_mm_fault\n");
+  struct page* page = alloc_page(PAL_USER | PAL_ZERO);
+  //void *kaddr = palloc_get_page(PAL_USER | PAL_ZERO);
+  void *kaddr = page->kaddr;
   //printf("mmfault = %x\n",vme->vaddr);
-
+/*
   if (kaddr == NULL) {
-    palloc_free_page(kaddr);
+    //palloc_free_page(kaddr);
+    free_page(page);
     return false;
   }
+*/
+  page->vme = vme;
+/*
   if (vme->is_loaded){
     return false;
   }
+*/
   switch (vme->type){
     case VM_BIN :
       load_file(kaddr, vme);//load on physical memory
@@ -703,8 +719,7 @@ bool handle_mm_fault(struct vm_entry *vme){
       }//mapping
       return vme->is_loaded;
       break;
-    case VM_FILE :
-      
+    case VM_FILE : 
       load_file(kaddr, vme);
       if (install_page(vme->vaddr, kaddr, vme->writable)){
         vme->is_loaded = true;
@@ -713,8 +728,14 @@ bool handle_mm_fault(struct vm_entry *vme){
       //데이터 로드할 수 있도록 수정
       break;
     case VM_ANON:
+      //printf("VM_ANON\n");
+      swap_in(vme->swap_slot, kaddr);
+      install_page(vme->vaddr, kaddr, vme->writable);
+      vme->is_loaded = true;
+      return vme->is_loaded;
       break;
   }
+
   return false;
 }
 

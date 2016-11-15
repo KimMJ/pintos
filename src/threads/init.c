@@ -23,6 +23,8 @@
 #include "threads/pte.h"
 #include "threads/thread.h"
 #include "vm/page.h"
+#include "vm/frame.h"
+#include "vm/swap.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #include "userprog/exception.h"
@@ -115,6 +117,8 @@ main (void)
   exception_init ();
   syscall_init ();
 #endif
+  lru_list_init();
+  swap_init(1024);
 
   /* Start thread scheduler and enable interrupts. */
   thread_start ();

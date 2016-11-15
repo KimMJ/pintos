@@ -57,4 +57,11 @@ struct mmap_file{
   struct list vme_list;//all vm_entry's list about mmap_file
 };
 
+struct page {
+  void *kaddr;//kernel memory address(virtual)
+  struct vm_entry *vme;//vm_entry
+  struct thread *thread;//holding thread
+  struct list_elem lru;//for lru_list
+};
+
 #endif
