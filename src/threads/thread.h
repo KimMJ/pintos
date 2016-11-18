@@ -130,6 +130,9 @@ struct thread
    
     /*Virtual Memory*/
     struct hash vm;
+    
+    /*Swap*/
+    mapid_t next_mapid;
   };
 
 /* If false (default), use round-robin scheduler.

@@ -15,7 +15,10 @@ void lru_list_init(void){
 }
 
 void add_page_to_lru_list(struct page* page){//used lock
-  //printf("add_page_to_lru_list\n");
+//  printf("add_page_to_lru_list, tid = %d, page = %x, size is %d\n", thread_current()->tid, page,list_size(&lru_list));
+ /// if (thread_current()->tid == 6){
+   // printf("hello\n");
+ // }
   lock_acquire(&lru_list_lock);
   ASSERT(page);
   list_push_back(&lru_list, &page->lru);//lru_list에 page추가
@@ -23,7 +26,7 @@ void add_page_to_lru_list(struct page* page){//used lock
 }
 
 void del_page_from_lru_list(struct page* page){//used lock
-  //printf("del_page_from_lru_list\n");
+//  printf("del_page_from_lru_list, tid = %d, page = %x, size is %d\n",thread_current()->tid, page, list_size(&lru_list));
   lock_acquire(&lru_list_lock);
   if (&page->lru == lru_clock){
     lru_clock = list_remove(lru_clock);//if it's lru_clock
@@ -51,18 +54,17 @@ struct page* alloc_page(enum palloc_flags flags){
   page->thread = thread_current();//for thread
   //for lru?
   //add to lru_list
+//  printf("in alloc_page add_page is %x\n",page);
   add_page_to_lru_list(page);
 
   return page;
 }
 
 void free_page(void *kaddr){
-  //printf("free_page\n");
   struct page *page;
   struct list_elem *elem,*tmp;
   lock_acquire(&lru_list_lock);
-
-
+  //printf("free_page tid is %d\n",thread_current()->tid);
   for (elem = list_begin(&lru_list) ; 
        elem != list_end(&lru_list) ; ){
     tmp = list_next(elem);
@@ -73,11 +75,11 @@ void free_page(void *kaddr){
     }
     elem = tmp;
   }
+  lock_release(&lru_list_lock);
 
   if (page != NULL){
     __free_page(page);
   }
-  lock_release(&lru_list_lock);
 }
 
 void __free_page(struct page* page){
@@ -86,9 +88,7 @@ void __free_page(struct page* page){
   //memory deallocate
   palloc_free_page(page->kaddr);//for kaddr
   pagedir_clear_page(page->thread->pagedir, page->vme->vaddr);
-
   //delete_vme(&page->thread->vm, page->vme);//for vme
-  
   free(page);//for page itself
 }
 
@@ -153,15 +153,22 @@ void* try_to_free_pages(enum palloc_flags flags){
   //when lack of physical memory, handle_mm_fault call this function
   struct list_elem *elem = get_next_lru_clock();
   //find next victim elem
-  if (elem == NULL) printf("what the fuck!\n");//not reached
 
   struct page *victim = list_entry(elem, struct page, lru);
-  //find victim page with elem
-  while(pagedir_is_accessed(victim->thread->pagedir, victim->vme->vaddr)){
+  while(pagedir_is_accessed(victim->thread->pagedir, victim->vme->vaddr)){//accessed된 놈인가.
     pagedir_set_accessed(victim->thread->pagedir, victim->vme->vaddr, false);
     elem = get_next_lru_clock();
     victim = list_entry(elem, struct page, lru);
+//    printf("what? list_size is %d, victim is %x, is loaded = %d, thread status = %d\n",list_size(&lru_list),victim,victim->thread->is_loaded,victim->thread->status);
+//    printf("victim magic is %x, tid is %d\n",victim->thread->magic,victim->thread->tid);
+//    printf("victim name is %s, victim pagedir is %x\n",victim->thread->name,victim->thread->pagedir);
+//    printf("list_end = %x, mmap size = %d\n", list_end(&lru_list), list_size(&victim->thread->mmap_list));
+    ASSERT(victim);
+    ASSERT(victim->thread);
+    ASSERT(victim->thread->magic == 0xcd6abf4b);
+    ASSERT(victim->vme);
   }
+//  printf("victim is selected\n\n");
 
   bool dirty = pagedir_is_dirty(victim->thread->pagedir, victim->vme->vaddr);
   //printf("dirty? %d\n",dirty);
@@ -170,6 +177,8 @@ void* try_to_free_pages(enum palloc_flags flags){
     case VM_BIN:
       //printf("swap out VM_BIN\n");
       if (dirty){
+        //printf("swap_out vaddr = %x, tid = %d\n", victim->vme->vaddr, thread_current()->tid);
+        //printf("swap_out vaddr = %x\n", victim->vme->vaddr);
         victim->vme->swap_slot = swap_out(victim->kaddr);
         victim->vme->type = VM_ANON;
         //record in swap partition
@@ -189,6 +198,8 @@ void* try_to_free_pages(enum palloc_flags flags){
       break;
     case VM_ANON:
       //printf("swap out VM_ANON\n");
+        //printf("swap_out vaddr = %x, tid = %d\n", victim->vme->vaddr,thread_current()->tid);
+        //printf("swap_out vaddr = %x\n", victim->vme->vaddr);
       victim->vme->swap_slot = swap_out(victim->kaddr);
       break;
     default:
@@ -200,4 +211,20 @@ void* try_to_free_pages(enum palloc_flags flags){
   lock_release(&lru_list_lock);
   __free_page(victim);
   return palloc_get_page(flags);
+}
+
+void free_all_pages(tid_t tid){
+  //printf("in free_all_pages\n");
+  struct list_elem *elem, *tmp;
+  struct page * page;
+  for (elem = list_begin(&lru_list) ; 
+       elem != list_end(&lru_list) ; ){
+    tmp = list_next(elem);
+    page = list_entry(elem, struct page, lru);
+    if (page->thread->tid == tid){
+      del_page_from_lru_list(page);
+    }
+    elem = tmp;
+  }
+  //printf("ended\n");
 }

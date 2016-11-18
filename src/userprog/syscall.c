@@ -100,7 +100,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     munmap((int)arg[0]);
     break;
   default :
-    printf("what the fuck\n");
+    printf("what the fuck case is %d\n",number);
     break;
 	}
 }
@@ -174,6 +174,8 @@ void exit(int status){
 	thread_current()->exit_status = status;
   //종료상태를 저장합니다.
   printf("%s: exit(%d)\n",thread_name(), status);
+  //printf("%s: exit(%d) tid is %d\n",thread_name(), status,thread_current()->tid);
+
 	thread_exit();
 }
 
@@ -250,7 +252,9 @@ int read (int fd, void * buffer, unsigned size){
     exit(-1);
   }
   //버퍼가 유효한 값인지 검사합니다.
+  //printf("before locked in read tid is %d\n",thread_current()->tid);
   lock_acquire(&filesys_lock);
+  //printf("filesys_locked in read tid is %d\n",thread_current()->tid);
   //read중에 다른 프로세서에서 접근을 막습니다.
   /*
   if (fd == 1){
@@ -261,18 +265,21 @@ int read (int fd, void * buffer, unsigned size){
     while (i < size){
       ((char*)buffer)[i++] = input_getc();
     }
+  //printf("filesys_released in read tid is %d\n",thread_current()->tid);
     lock_release(&filesys_lock);
     return i;
   }else{//나머지의 경우
     f = process_get_file(fd);
     //fd가 유효하지 않으면 null을 반환합니다.
     if (f == NULL){
+  //printf("filesys_released in read tid is %d\n",thread_current()->tid);
       lock_release(&filesys_lock);
       return -1;
      }
     t =  file_read(f,buffer,(off_t)size);
     //fd가 유효하면 버퍼로 읽어들입니다.
   }
+  //printf("filesys_released in read tid is %d\n",thread_current()->tid);
   lock_release(&filesys_lock);
   return t;
   
@@ -286,7 +293,9 @@ int write (int fd, void * buffer, unsigned size){
     exit(-1);
   }
   //printf("e->vaddr = %x\n",e->vaddr); 
+  //printf("before locked in write tid is %d\n",thread_current()->tid);
   lock_acquire(&filesys_lock);
+  //printf("filesys_locked in write tid is %d\n",thread_current()->tid);
   /*
   if (fd == 0){
     lock_release(&filesys_lock);
@@ -295,18 +304,21 @@ int write (int fd, void * buffer, unsigned size){
     if (fd == 1){//stdout에 쓸 경우
     putbuf((char*)buffer,size);
     t = size;
+  //printf("filesys_released in write tid is %d\n",thread_current()->tid);
     lock_release(&filesys_lock);
     return t;
   }else {//나머지의 경우
     f = process_get_file(fd);
     //fd가 유효하지 않으면 null을 반환합니다.
     if (f == NULL){
+  //printf("filesys_released in write tid is %d\n",thread_current()->tid);
       lock_release(&filesys_lock);
       return -1;
     }
     t = file_write(f,buffer,(off_t) size);
     //fd가 유효하면 버퍼로 기록합니다.
   }
+  //printf("filesys_released in write tid is %d\n",thread_current()->tid);
   lock_release(&filesys_lock);
   return t;
 }
@@ -345,11 +357,11 @@ static mapid_t allocate_mapid (void) {
 }
 
 mapid_t mmap(int fd, void *addr){
-  //printf("mmap\n");
+  //printf("mmap, tid = %d\n",thread_current()->tid);
   //이미 한 addr에 대해 mmap할 때, over-code, over-data, over-stk 
   //printf("")
   if (pg_ofs(addr) != 0 || addr == NULL) return -1;
-  mapid_t mapid=0;
+  //mapid_t mapid=0;
 
 
   struct file *file = file_reopen(process_get_file(fd));
@@ -363,7 +375,6 @@ mapid_t mmap(int fd, void *addr){
     int total_size = file_length(file);
 
     read_bytes = (uint32_t)total_size;
-    mapid = allocate_mapid();
     
     //make mmap_file and initialize
     //해당 파일에 대한 mmap_file구조체 생성
@@ -373,7 +384,7 @@ mapid_t mmap(int fd, void *addr){
     }
     memset(m, 0, sizeof *m);
 
-    m->mapid = mapid;
+    m->mapid = thread_current()->next_mapid++;
     m->file = file;
     list_init(&m->vme_list);
     list_push_back(&thread_current()->mmap_list, &m->elem);
@@ -409,15 +420,18 @@ mapid_t mmap(int fd, void *addr){
       addr += PGSIZE;
       ofs += page_read_bytes;
     }
-    return mapid;
+    //printf("in mmap, mapid is %d, tid is %d\n",m->mapid,thread_current()->tid);
+    return m->mapid;
   }
   return -1;
 }
 
 void munmap(mapid_t mapping){  
-//  printf("munmap\n");
+  //printf("in munmap, mapping is %d\n",mapping);
   //mmap_list에서 mapping에 해당하는 모든 vm_entry를 해제
   struct thread *cur = thread_current();
+  //printf("munmap, tid = %d, list_size is %d\n",cur->tid,list_size(&cur->mmap_list));
+  //printf("list_size(&cur->mmap_list) = %d\n", list_size(&cur->mmap_list));
   struct list_elem *e, *tmp;
   for (e = list_begin(&cur->mmap_list) ;
        e != list_end(&cur->mmap_list) ; ){
@@ -426,17 +440,22 @@ void munmap(mapid_t mapping){
     ASSERT(m != NULL);
     if (m->mapid == mapping || mapping == CLOSE_ALL ){
       e = list_remove(e);
-      //printf("go to munmap\n");
+      //printf("go to do_munmap mapid is %d, tid is %d\n",m->mapid,cur->tid);
       do_munmap(m);
     }else {
       e = list_next(e);
     }
     //e = tmp;
   }
+  if (mapping == CLOSE_ALL){
+    //printf("go to free_all_pages\n");
+    free_all_pages(thread_current()->tid);
+  }
 }
 
 void do_munmap(struct mmap_file *mmap_file){
-//  printf("do_munmap\n");
+  int count = 1;
+  //printf("in do_munmap\n");
   //mmap_file의 vme_list를 삭제하는 과정.
   //vme_list의 vme들은 thread와 공유중
   
@@ -444,10 +463,12 @@ void do_munmap(struct mmap_file *mmap_file){
   //ASSERT(!list_empty(&mmap_file->vme_list));
   for (e = list_begin(&mmap_file->vme_list) ;
        e != list_end(&mmap_file->vme_list) ; ){
+    //printf("infinite loop?, list size is %d, count = %d\n",list_size(&mmap_file->vme_list), count++);
+    //printf("tid is %d\n",thread_current()->tid);
     tmp = list_next(e);
     void *pd = thread_current()->pagedir;
     struct vm_entry *vme = list_entry(e, struct vm_entry, mmap_elem);
-
+/*
     if (vme->is_loaded && pagedir_is_dirty(pd,vme->vaddr)){//if dirty
       file_write_at(mmap_file->file, vme->vaddr, vme->read_bytes, vme->offset);
       //vme->vaddr을 가지고 page를 얻어서 free_page할 것.
@@ -458,11 +479,23 @@ void do_munmap(struct mmap_file *mmap_file){
       free_page(pagedir_get_page(thread_current()->pagedir, vme->vaddr));
       pagedir_clear_page(pd, vme->vaddr);
     }
+  */  
+    if (vme->is_loaded){
+      if (pagedir_is_dirty(pd,vme->vaddr)){
+    //printf("vme->file = %x, vme->vaddr = %x, vme->read_bytes = %d, vme->offeset = %d\n", vme->file, vme->vaddr, vme->read_bytes, vme->offset);
+        //printf("locked\n");
+        file_write_at(vme->file, vme->vaddr, vme->read_bytes, vme->offset);
+        //printf("what the fucking it is\n");
+        
+      }
+      free_page(pagedir_get_page(thread_current()->pagedir, vme->vaddr));
+      pagedir_clear_page(pd, vme->vaddr);
+    }
     vme->is_loaded = false;
     e = tmp;
     delete_vme(&thread_current()->vm,vme);
   }
-  //file_close(mmap_file->file);
+  file_close(mmap_file->file);
   //list_remove(&mmap_file->elem);//for thread
   free(mmap_file);
 }

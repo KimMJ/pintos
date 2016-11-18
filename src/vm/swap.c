@@ -3,6 +3,7 @@
 #include "lib/kernel/bitmap.h"
 #include "vm/page.h"
 #include "vm/frame.h"
+#include "threads/vaddr.h"
 
 //struct block *swap_block;
 struct bitmap *swap_bitmap;
@@ -14,9 +15,12 @@ void swap_init (int count){
   lock_init(&swap_lock);
 }
 
+extern struct lock filesys_lock;
+
 void swap_in (size_t used_index, void *kaddr){
-  //printf("swap_in kaddr = %x\n",kaddr);
+  //printf("swap_in, kaddr = %x\n", kaddr);
   struct block *swap_block = block_get_role(BLOCK_SWAP);
+  lock_acquire(&filesys_lock);
   lock_acquire(&swap_lock);
   
 
@@ -29,12 +33,15 @@ void swap_in (size_t used_index, void *kaddr){
   bitmap_set_multiple(swap_bitmap, used_index, 1, false);
   //swap in from bitmap
   lock_release(&swap_lock);
+  lock_release(&filesys_lock);
 }
 
 size_t swap_out (void *kaddr){
   //printf("swap_out kaddr = %x\n",kaddr);
   struct block *swap_block = block_get_role(BLOCK_SWAP);
+  lock_acquire(&filesys_lock);
   lock_acquire(&swap_lock); 
+
 
   size_t index = bitmap_scan_and_flip(swap_bitmap, 0, 1, false);
   //used first fit
@@ -48,6 +55,13 @@ size_t swap_out (void *kaddr){
     block_write(swap_block, index * 8 + i, kaddr + i*BLOCK_SECTOR_SIZE);
   }
   lock_release(&swap_lock);
+  lock_release(&filesys_lock);
   //printf("index = %d\n",index);
   return index;//?
+}
+
+void swap_clear(size_t used_index){
+  lock_acquire(&swap_lock);
+  bitmap_set_multiple(swap_bitmap, used_index, 1, false);
+  lock_release(&swap_lock);
 }

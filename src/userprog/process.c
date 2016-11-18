@@ -249,9 +249,11 @@ process_wait (tid_t child_tid UNUSED)
 void
 process_exit (void)
 {
+  //printf("in process_exit tid is %d\n", thread_current()->tid);
   struct thread *cur = thread_current ();
   uint32_t *pd;
                                                                                                                   
+
   while (cur->next_fd > 2){
     process_close_file(cur->next_fd-1);
     cur->next_fd --;
@@ -267,7 +269,23 @@ process_exit (void)
 
   //destory vm_entry;
   munmap(CLOSE_ALL);
-
+  //free_all_pages(cur->tid);
+  //printf("??\n");
+  /*
+  int i = 0;
+  for (i = 0 ; i < cur->next_mapid ; i ++){
+    struct list_elem *e, *tmp;
+    for (e = list_begin(&cur->mmap_list) ; 
+         e != list_end(&cur->mmap_list ) ; ){
+      struct mmap_file *m = list_entry(e, struct mmap_file, elem);
+        printf("before\n");
+      if (m->mapid == i){
+        e = list_remove(e);
+        do_munmap(m);
+      }
+    }
+  }
+*/
   vm_destroy(&cur->vm);
 
   pd = cur->pagedir;
@@ -492,6 +510,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   success = true;
 
  done:
+  //printf("t->pagedir = %x, t->name = %s, t->tid = %d\n",t->pagedir,t->name,t->tid);
   /* We arrive here whether the //load is successful or not. */
   return success;
 }
@@ -650,7 +669,8 @@ setup_stack (void **esp)
   if (kpage != NULL || page != NULL) 
     {
       page->vme = e;
-      add_page_to_lru_list(page);
+      //printf("in setup_stack add_page = %x\n",page);
+      //add_page_to_lru_list(page);
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
         *esp = PHYS_BASE;
@@ -661,6 +681,9 @@ setup_stack (void **esp)
         return false;
       }
     }
+  else {
+    free_page(page);
+  }
 
   memset(e,0x00, sizeof(struct vm_entry));
   e->type = VM_ANON;
@@ -718,7 +741,6 @@ bool handle_mm_fault(struct vm_entry *vme){
         vme->is_loaded = true;  
       }//mapping
       return vme->is_loaded;
-      break;
     case VM_FILE : 
       load_file(kaddr, vme);
       if (install_page(vme->vaddr, kaddr, vme->writable)){
@@ -726,14 +748,13 @@ bool handle_mm_fault(struct vm_entry *vme){
       }
       return vme->is_loaded;
       //데이터 로드할 수 있도록 수정
-      break;
     case VM_ANON:
       //printf("VM_ANON\n");
+//      printf("swap_in vaddr = %x, tid = %d\n",vme->vaddr,thread_current()->tid);
       swap_in(vme->swap_slot, kaddr);
       install_page(vme->vaddr, kaddr, vme->writable);
       vme->is_loaded = true;
       return vme->is_loaded;
-      break;
   }
 
   return false;

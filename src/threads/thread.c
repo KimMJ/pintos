@@ -208,6 +208,8 @@ thread_create (const char *name, int priority,
   t->fdt = palloc_get_page(PAL_ZERO);
   //fdt를 할당합니다.
   t->next_fd = 2;
+  t->next_mapid = 1;
+  
   //fd0,1은 각각 stdin, stdout입니다.
 
   /* Prepare thread for first run by initializing its stack.
