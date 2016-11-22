@@ -117,8 +117,6 @@ main (void)
   exception_init ();
   syscall_init ();
 #endif
-  lru_list_init();
-  swap_init(1024);
 
   /* Start thread scheduler and enable interrupts. */
   thread_start ();
@@ -132,6 +130,8 @@ main (void)
   filesys_init (format_filesys);
 #endif
 
+  lru_list_init();
+  swap_init(1024);
   printf ("Boot complete.\n");
   
   /* Run actions specified on kernel command line. */

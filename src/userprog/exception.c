@@ -162,10 +162,10 @@ page_fault (struct intr_frame *f)
 */
   //  kill (f);
 
-  
+ /* 
   if (!check_address(fault_addr,0)){
     exit(-1);
-  }
+  }*/
   //printf("10\n");
 
   if (not_present){

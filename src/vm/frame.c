@@ -70,16 +70,13 @@ void free_page(void *kaddr){
     tmp = list_next(elem);
     page = list_entry(elem, struct page, lru);
     if (page->kaddr == kaddr){
+      __free_page(page);
       //printf("page in find_page = %x\n",page);
       break;
     }
     elem = tmp;
   }
   lock_release(&lru_list_lock);
-
-  if (page != NULL){
-    __free_page(page);
-  }
 }
 
 void __free_page(struct page* page){
@@ -159,10 +156,6 @@ void* try_to_free_pages(enum palloc_flags flags){
     pagedir_set_accessed(victim->thread->pagedir, victim->vme->vaddr, false);
     elem = get_next_lru_clock();
     victim = list_entry(elem, struct page, lru);
-//    printf("what? list_size is %d, victim is %x, is loaded = %d, thread status = %d\n",list_size(&lru_list),victim,victim->thread->is_loaded,victim->thread->status);
-//    printf("victim magic is %x, tid is %d\n",victim->thread->magic,victim->thread->tid);
-//    printf("victim name is %s, victim pagedir is %x\n",victim->thread->name,victim->thread->pagedir);
-//    printf("list_end = %x, mmap size = %d\n", list_end(&lru_list), list_size(&victim->thread->mmap_list));
     ASSERT(victim);
     ASSERT(victim->thread);
     ASSERT(victim->thread->magic == 0xcd6abf4b);

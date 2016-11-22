@@ -20,26 +20,24 @@ extern struct lock filesys_lock;
 void swap_in (size_t used_index, void *kaddr){
   //printf("swap_in, kaddr = %x\n", kaddr);
   struct block *swap_block = block_get_role(BLOCK_SWAP);
-  lock_acquire(&filesys_lock);
   lock_acquire(&swap_lock);
   
-
-  int i = 0;
-  for (i = 0  ; i < 8 ; i ++){
+  if (bitmap_test(swap_bitmap, used_index) != 0){
+    int i = 0;
+    for (i = 0  ; i < 8 ; i ++){
     //sector to block
-    block_read(swap_block, used_index*8 + i, kaddr + i*BLOCK_SECTOR_SIZE);
-  }
+      block_read(swap_block, used_index*8 + i, kaddr + i*BLOCK_SECTOR_SIZE);
+    }
 
-  bitmap_set_multiple(swap_bitmap, used_index, 1, false);
+    bitmap_set_multiple(swap_bitmap, used_index, 1, false);
   //swap in from bitmap
+  }
   lock_release(&swap_lock);
-  lock_release(&filesys_lock);
 }
 
 size_t swap_out (void *kaddr){
   //printf("swap_out kaddr = %x\n",kaddr);
   struct block *swap_block = block_get_role(BLOCK_SWAP);
-  lock_acquire(&filesys_lock);
   lock_acquire(&swap_lock); 
 
 
@@ -55,7 +53,6 @@ size_t swap_out (void *kaddr){
     block_write(swap_block, index * 8 + i, kaddr + i*BLOCK_SECTOR_SIZE);
   }
   lock_release(&swap_lock);
-  lock_release(&filesys_lock);
   //printf("index = %d\n",index);
   return index;//?
 }

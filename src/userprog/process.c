@@ -271,34 +271,12 @@ process_exit (void)
   munmap(CLOSE_ALL);
   //free_all_pages(cur->tid);
   //printf("??\n");
-  /*
-  int i = 0;
-  for (i = 0 ; i < cur->next_mapid ; i ++){
-    struct list_elem *e, *tmp;
-    for (e = list_begin(&cur->mmap_list) ; 
-         e != list_end(&cur->mmap_list ) ; ){
-      struct mmap_file *m = list_entry(e, struct mmap_file, elem);
-        printf("before\n");
-      if (m->mapid == i){
-        e = list_remove(e);
-        do_munmap(m);
-      }
-    }
-  }
-*/
   vm_destroy(&cur->vm);
 
   pd = cur->pagedir;
 
   if (pd != NULL) 
     {
-      /* Correct ordering here is crucial.  We must set
-         cur->pagedir to NULL before switching page directories,
-         so that a timer interrupt can't switch back to the
-         process page directory.  We must activate the base page
-         directory before destroying the process's page
-         directory, or our active page directory will be one
-         that's been freed (and cleared). */
       cur->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
@@ -716,6 +694,10 @@ install_page (void *upage, void *kpage, bool writable)
 }
 
 bool handle_mm_fault(struct vm_entry *vme){
+  
+  if(vme->is_loaded == true){
+    return false;
+  }
   //printf("handle_mm_fault\n");
   struct page* page = alloc_page(PAL_USER | PAL_ZERO);
   //void *kaddr = palloc_get_page(PAL_USER | PAL_ZERO);
@@ -729,22 +711,23 @@ bool handle_mm_fault(struct vm_entry *vme){
   }
 */
   page->vme = vme;
-/*
-  if (vme->is_loaded){
-    return false;
-  }
-*/
   switch (vme->type){
     case VM_BIN :
       load_file(kaddr, vme);//load on physical memory
       if (install_page(vme->vaddr,kaddr, vme->writable)){
         vme->is_loaded = true;  
       }//mapping
+      else {
+        free_page(kaddr);
+      }
       return vme->is_loaded;
     case VM_FILE : 
       load_file(kaddr, vme);
       if (install_page(vme->vaddr, kaddr, vme->writable)){
         vme->is_loaded = true;
+      }
+      else {
+        free_page(kaddr);
       }
       return vme->is_loaded;
       //데이터 로드할 수 있도록 수정
@@ -752,8 +735,12 @@ bool handle_mm_fault(struct vm_entry *vme){
       //printf("VM_ANON\n");
 //      printf("swap_in vaddr = %x, tid = %d\n",vme->vaddr,thread_current()->tid);
       swap_in(vme->swap_slot, kaddr);
-      install_page(vme->vaddr, kaddr, vme->writable);
-      vme->is_loaded = true;
+      if (install_page(vme->vaddr, kaddr, vme->writable)){
+        vme->is_loaded = true;
+      }
+      else {
+        free_page(kaddr);
+      }
       return vme->is_loaded;
   }
 
